@@ -36,9 +36,9 @@ First-run flow:
 | Image generation | 80₭ ($0.08) standard, 160₭ ($0.16) HD |
 | Embeddings | 1₭ ($0.001) per 1K tokens |
 | Vision | 20₭ ($0.02) per image |
-| Web search | 10₭ ($0.01) per search |
-| X search | 10₭ ($0.01) per search |
-| X user tweets | 10₭ ($0.01) per request |
+| Web search | 5₭ ($0.005) per search |
+| X search | 15₭ ($0.015) per search |
+| X user tweets | 15₭ ($0.015) per request |
 | KV store writes | 1₭ ($0.001) per write (reads free) |
 | File uploads | 1₭ ($0.001) per upload (downloads free) |
 | Transcription | 5₭ ($0.005) per 24s |

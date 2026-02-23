@@ -52,7 +52,7 @@ export function createAiTools(): ToolDefinition[] {
     },
     {
       name: "deva_ai_web_search",
-      description: "Run Deva web search resource. Pricing: 10₭ ($0.01) per search.",
+      description: "Run Deva web search resource. Pricing: 5₭ ($0.005) per search.",
       inputSchema: {
         type: "object",
         description: "Search payload accepted by Deva API.",

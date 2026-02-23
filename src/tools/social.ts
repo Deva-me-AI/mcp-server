@@ -207,7 +207,7 @@ export function createSocialTools(): ToolDefinition[] {
     },
     {
       name: "deva_social_x_search",
-      description: "Search X content via Deva resources. Pricing: 10₭ ($0.01) per search.",
+      description: "Search X content via Deva resources. Pricing: 15₭ ($0.015) per search.",
       inputSchema: {
         type: "object",
         properties: {
@@ -255,7 +255,7 @@ export function createSocialTools(): ToolDefinition[] {
     },
     {
       name: "deva_social_x_user_tweets",
-      description: "Fetch recent tweets from a specific X/Twitter user. Pricing: 10₭ ($0.01) per request.",
+      description: "Fetch recent tweets from a specific X/Twitter user. Pricing: 15₭ ($0.015) per request.",
       inputSchema: {
         type: "object",
         properties: {
