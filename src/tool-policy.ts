@@ -21,6 +21,12 @@ interface RemainingBudget {
   tool: number;
 }
 
+export interface ToolSpendReservation {
+  toolName: string;
+  reservedKarma: number;
+  state: "pending" | "released" | "settled";
+}
+
 const KARMA_PER_USDC = 1000;
 
 const paid = (): ToolSecurityMetadata => ({ paid: true });
@@ -244,7 +250,9 @@ function challengeAmountToKarma(challenge: PaymentChallenge | undefined): number
 export class ToolPolicyEnforcer {
   private readonly enabledTools: Set<string>;
   private sessionKarmaSpent = 0;
+  private sessionKarmaPending = 0;
   private readonly toolKarmaSpent = new Map<string, number>();
+  private readonly toolKarmaPending = new Map<string, number>();
 
   constructor(private readonly config: ToolPolicyConfig) {
     this.enabledTools = new Set(config.enabled_tools);
@@ -270,6 +278,66 @@ export class ToolPolicyEnforcer {
     }
   }
 
+  reserveSpend(toolName: string): ToolSpendReservation | undefined {
+    this.assertCanExecute(toolName);
+
+    if (!getToolSecurityMetadata(toolName).paid) {
+      return undefined;
+    }
+
+    const remaining = this.getRemainingBudget(toolName);
+    const reservedKarma = Math.min(remaining.session, remaining.tool);
+    this.assertBudgetAvailable(toolName, reservedKarma);
+
+    const reservation: ToolSpendReservation = {
+      toolName,
+      reservedKarma,
+      state: "pending"
+    };
+
+    this.sessionKarmaPending += reservedKarma;
+    this.toolKarmaPending.set(toolName, this.getToolKarmaPending(toolName) + reservedKarma);
+
+    return reservation;
+  }
+
+  settleSpend(reservation: ToolSpendReservation | undefined, payload: unknown): number | undefined {
+    if (!reservation) {
+      return undefined;
+    }
+
+    const toolName = reservation.toolName;
+    const cost = extractKarmaCost(payload);
+    if (cost === undefined) {
+      this.settleReservation(reservation, reservation.reservedKarma);
+      throw this.denied(
+        `Paid tool '${toolName}' completed without a parseable karma cost; the reserved ${reservation.reservedKarma} karma was counted against local spend caps because the actual cost cannot be verified.`
+      );
+    }
+
+    const remaining = this.getRemainingBudgetAfterReleasing(reservation);
+    const capError = this.getCapExceededError(toolName, cost, remaining);
+    this.settleReservation(reservation, cost);
+    if (capError) {
+      throw capError;
+    }
+
+    return cost;
+  }
+
+  releaseSpend(reservation: ToolSpendReservation | undefined): void {
+    if (!reservation || reservation.state !== "pending") {
+      return;
+    }
+
+    reservation.state = "released";
+    this.sessionKarmaPending = Math.max(0, this.sessionKarmaPending - reservation.reservedKarma);
+    this.toolKarmaPending.set(
+      reservation.toolName,
+      Math.max(0, this.getToolKarmaPending(reservation.toolName) - reservation.reservedKarma)
+    );
+  }
+
   recordSpend(toolName: string, payload: unknown): number | undefined {
     if (!getToolSecurityMetadata(toolName).paid) {
       return undefined;
@@ -277,11 +345,17 @@ export class ToolPolicyEnforcer {
 
     const cost = extractKarmaCost(payload);
     if (cost === undefined) {
-      return undefined;
+      throw this.denied(`Paid tool '${toolName}' completed without a parseable karma cost, so local spend caps cannot be enforced.`);
     }
 
+    this.assertPaidBudgetConfigured(toolName);
+    const capError = this.getCapExceededError(toolName, cost, this.getRemainingBudget(toolName));
     this.sessionKarmaSpent += cost;
     this.toolKarmaSpent.set(toolName, this.getToolKarmaSpent(toolName) + cost);
+    if (capError) {
+      throw capError;
+    }
+
     return cost;
   }
 
@@ -308,8 +382,16 @@ export class ToolPolicyEnforcer {
     return this.sessionKarmaSpent;
   }
 
+  getSessionKarmaPending(): number {
+    return this.sessionKarmaPending;
+  }
+
   getToolKarmaSpent(toolName: string): number {
     return this.toolKarmaSpent.get(toolName) ?? 0;
+  }
+
+  getToolKarmaPending(toolName: string): number {
+    return this.toolKarmaPending.get(toolName) ?? 0;
   }
 
   private assertPaidBudgetConfigured(toolName: string): void {
@@ -336,10 +418,55 @@ export class ToolPolicyEnforcer {
     }
   }
 
+  private getCapExceededError(toolName: string, cost: number, remaining: RemainingBudget): DevaError | undefined {
+    if (cost > remaining.session) {
+      return this.denied(
+        `Paid tool '${toolName}' returned a karma cost of ${cost}, which would exceed the remaining per-session karma spend cap.`
+      );
+    }
+
+    if (cost > remaining.tool) {
+      return this.denied(
+        `Paid tool '${toolName}' returned a karma cost of ${cost}, which would exceed its remaining per-tool karma spend cap.`
+      );
+    }
+
+    return undefined;
+  }
+
+  private settleReservation(reservation: ToolSpendReservation, cost: number): void {
+    if (reservation.state !== "pending") {
+      return;
+    }
+
+    reservation.state = "settled";
+    this.sessionKarmaPending = Math.max(0, this.sessionKarmaPending - reservation.reservedKarma);
+    this.toolKarmaPending.set(
+      reservation.toolName,
+      Math.max(0, this.getToolKarmaPending(reservation.toolName) - reservation.reservedKarma)
+    );
+    this.sessionKarmaSpent += cost;
+    this.toolKarmaSpent.set(reservation.toolName, this.getToolKarmaSpent(reservation.toolName) + cost);
+  }
+
   private getRemainingBudget(toolName: string): RemainingBudget {
     return {
-      session: this.config.spend_caps.session_karma - this.sessionKarmaSpent,
-      tool: this.getToolCap(toolName) - this.getToolKarmaSpent(toolName)
+      session: this.config.spend_caps.session_karma - this.sessionKarmaSpent - this.sessionKarmaPending,
+      tool: this.getToolCap(toolName) - this.getToolKarmaSpent(toolName) - this.getToolKarmaPending(toolName)
+    };
+  }
+
+  private getRemainingBudgetAfterReleasing(reservation: ToolSpendReservation): RemainingBudget {
+    const pendingSessionRelease = reservation.state === "pending" ? reservation.reservedKarma : 0;
+    const pendingToolRelease = reservation.state === "pending" ? reservation.reservedKarma : 0;
+
+    return {
+      session:
+        this.config.spend_caps.session_karma - this.sessionKarmaSpent - Math.max(0, this.sessionKarmaPending - pendingSessionRelease),
+      tool:
+        this.getToolCap(reservation.toolName) -
+        this.getToolKarmaSpent(reservation.toolName) -
+        Math.max(0, this.getToolKarmaPending(reservation.toolName) - pendingToolRelease)
     };
   }
 

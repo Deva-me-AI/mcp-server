@@ -55,7 +55,7 @@ Use `deva_cost_estimate` before execution and `deva_resources_catalog` for live 
 
 The server starts in a least-privilege mode. Free read tools are listed by default. Paid tools and tools that change account, storage, social, webhook, cron, marketplace, server, or messaging state are hidden from `list_tools` and rejected if called directly until they are explicitly enabled in `~/.deva-mcp/config.json`.
 
-Paid tools also require spend caps. Caps are tracked per MCP server process and reset when the process restarts. Returned `karma_cost` values count against the caps; x402 payment challenges are checked against remaining caps before the challenge is returned to the client.
+Paid tools also require spend caps. Caps are tracked per MCP server process and reset when the process restarts. Paid calls reserve local budget before the upstream request, and returned `karma_cost` values settle against that reservation. If a successful paid response omits a parseable cost or returns a cost above the remaining cap, the MCP call fails with a local policy error. x402 payment challenges are checked against remaining caps before the challenge is returned to the client.
 
 Example:
 

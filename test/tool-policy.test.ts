@@ -91,6 +91,66 @@ describe("ToolPolicyEnforcer", () => {
     expect(() => policy.assertCanExecute("deva_ai_tts")).toThrow(/per-tool karma spend cap/);
   });
 
+  it("reserves pending paid spend before settlement", () => {
+    const policy = new ToolPolicyEnforcer(
+      normalizeToolPolicyConfig({
+        enabled_tools: ["deva_ai_tts"],
+        spend_caps: {
+          session_karma: 5,
+          default_tool_karma: 5
+        }
+      })
+    );
+
+    const reservation = policy.reserveSpend("deva_ai_tts");
+    expect(reservation?.reservedKarma).toBe(5);
+    expect(policy.getSessionKarmaPending()).toBe(5);
+    expect(policy.getToolKarmaPending("deva_ai_tts")).toBe(5);
+    expect(() => policy.reserveSpend("deva_ai_tts")).toThrow(/per-session karma spend cap/);
+
+    policy.settleSpend(reservation, { karma_cost: 2 });
+    expect(policy.getSessionKarmaPending()).toBe(0);
+    expect(policy.getSessionKarmaSpent()).toBe(2);
+  });
+
+  it("fails closed when a paid response omits parseable cost", () => {
+    const policy = new ToolPolicyEnforcer(
+      normalizeToolPolicyConfig({
+        enabled_tools: ["deva_ai_tts"],
+        spend_caps: {
+          session_karma: 5,
+          default_tool_karma: 5
+        }
+      })
+    );
+
+    const reservation = policy.reserveSpend("deva_ai_tts");
+
+    expect(() => policy.settleSpend(reservation, { ok: true })).toThrow(/without a parseable karma cost/);
+    expect(policy.getSessionKarmaPending()).toBe(0);
+    expect(policy.getSessionKarmaSpent()).toBe(5);
+    expect(() => policy.assertCanExecute("deva_ai_tts")).toThrow(/per-session karma spend cap/);
+  });
+
+  it("fails closed and records over-cap successful paid responses", () => {
+    const policy = new ToolPolicyEnforcer(
+      normalizeToolPolicyConfig({
+        enabled_tools: ["deva_ai_tts"],
+        spend_caps: {
+          session_karma: 5,
+          default_tool_karma: 5
+        }
+      })
+    );
+
+    const reservation = policy.reserveSpend("deva_ai_tts");
+
+    expect(() => policy.settleSpend(reservation, { karma_cost: 6 })).toThrow(/remaining per-session karma spend cap/);
+    expect(policy.getSessionKarmaPending()).toBe(0);
+    expect(policy.getSessionKarmaSpent()).toBe(6);
+    expect(() => policy.assertCanExecute("deva_ai_tts")).toThrow(/per-session karma spend cap/);
+  });
+
   it("blocks x402 payment challenges that exceed remaining caps", () => {
     const policy = new ToolPolicyEnforcer(
       normalizeToolPolicyConfig({

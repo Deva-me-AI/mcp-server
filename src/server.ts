@@ -6,7 +6,7 @@ import { withKarmaCost } from "./billing.js";
 import { RuntimeConfig, redactApiKey } from "./config.js";
 import { DevaClient } from "./deva-client.js";
 import { formatErrorForTool } from "./errors.js";
-import { ToolPolicyEnforcer, assertKnownToolPolicies } from "./tool-policy.js";
+import { ToolPolicyEnforcer, ToolSpendReservation, assertKnownToolPolicies } from "./tool-policy.js";
 import { createAgentTools } from "./tools/agent.js";
 import { createAiTools } from "./tools/ai.js";
 import { createBalanceTools } from "./tools/balance.js";
@@ -105,9 +105,10 @@ export class DevaMcpServer {
         };
       }
 
-      try {
-        this.toolPolicy.assertCanExecute(toolName);
+      let spendReservation: ToolSpendReservation | undefined;
 
+      try {
+        spendReservation = this.toolPolicy.reserveSpend(toolName);
         const args = (request.params.arguments ?? {}) as Record<string, unknown>;
         const context: ToolContext = {
           client: this.client,
@@ -115,7 +116,8 @@ export class DevaMcpServer {
         };
 
         const payload = await tool.execute(args, context);
-        this.toolPolicy.recordSpend(toolName, payload);
+        this.toolPolicy.settleSpend(spendReservation, payload);
+        spendReservation = undefined;
         const decorated = payload && typeof payload === "object" ? withKarmaCost(payload as Record<string, unknown>) : payload;
 
         return {
@@ -127,6 +129,7 @@ export class DevaMcpServer {
           ]
         };
       } catch (error) {
+        this.toolPolicy.releaseSpend(spendReservation);
         let message: string;
         try {
           this.toolPolicy.assertPaymentChallengeWithinCaps(toolName, error);
