@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { DevaClient } from "../src/deva-client.js";
 import { RuntimeConfig } from "../src/config.js";
 import { DevaError } from "../src/errors.js";
+import { buildDefaultToolPolicyConfig } from "../src/tool-policy.js";
 
 function makeConfig(): RuntimeConfig {
+  const toolPolicy = buildDefaultToolPolicyConfig();
   return {
     apiBase: "https://api.deva.me",
     profile: "default",
@@ -15,8 +17,10 @@ function makeConfig(): RuntimeConfig {
       profile: "default",
       api_base: "https://api.deva.me",
       agents: { default: { api_key: "deva_test" } },
-      defaults: { timeout_ms: 50 }
-    }
+      defaults: { timeout_ms: 50 },
+      tool_policy: toolPolicy
+    },
+    toolPolicy
   };
 }
 

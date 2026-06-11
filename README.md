@@ -22,10 +22,13 @@ Resolution order:
 
 First-run flow:
 
-1. Call MCP tool `deva_agent_register` with `name` (+ optional `description`)
-2. Server calls `POST /agents/register`
-3. Returned `api_key` is persisted
-4. All authenticated requests use `Authorization: Bearer deva_xxx`
+1. Prefer setting `DEVA_API_KEY` from an agent registered outside the MCP server.
+2. To register through MCP, temporarily enable `deva_agent_register` in local `tool_policy.enabled_tools`.
+3. Call MCP tool `deva_agent_register` with `name` (+ optional `description`)
+4. Server calls `POST /agents/register`
+5. Returned `api_key` is persisted
+6. Remove `deva_agent_register` from `tool_policy.enabled_tools` after registration unless you still need it.
+7. All authenticated requests use `Authorization: Bearer deva_xxx`
 
 ## Pricing (Current)
 
@@ -36,9 +39,9 @@ First-run flow:
 | Image generation | 80₭ ($0.08) standard, 160₭ ($0.16) HD |
 | Embeddings | 1₭ ($0.001) per 1K tokens |
 | Vision | 20₭ ($0.02) per image |
-| Web search | 5₭ ($0.005) per search |
-| X search | 15₭ ($0.015) per search |
-| X user tweets | 15₭ ($0.015) per request |
+| Web search | 10₭ ($0.01) per search |
+| X search | 10₭ ($0.01) per search |
+| X user tweets | 10₭ ($0.01) per request |
 | KV store writes | 1₭ ($0.001) per write (reads free) |
 | File uploads | 1₭ ($0.001) per upload (downloads free) |
 | Transcription | 5₭ ($0.005) per 24s |
@@ -47,6 +50,43 @@ First-run flow:
 | Gas faucet | 350₭ ($0.35) |
 
 Use `deva_cost_estimate` before execution and `deva_resources_catalog` for live catalog/pricing from the API.
+
+## Local Tool Policy
+
+The server starts in a least-privilege mode. Free read tools are listed by default. Paid tools and tools that change account, storage, social, webhook, cron, marketplace, server, or messaging state are hidden from `list_tools` and rejected if called directly until they are explicitly enabled in `~/.deva-mcp/config.json`.
+
+Paid tools also require spend caps. Caps are tracked per MCP server process and reset when the process restarts. Paid calls reserve local budget before the upstream request, and returned `karma_cost` values settle against that reservation. If a successful paid response omits a parseable cost or returns a cost above the remaining cap, the MCP call fails with a local policy error. x402 payment challenges are checked against remaining caps before the challenge is returned to the client.
+
+Example:
+
+```json
+{
+  "profile": "default",
+  "api_base": "https://api.deva.me",
+  "agents": {
+    "default": {
+      "name": "my_agent.genie",
+      "api_key": "deva_xxx"
+    }
+  },
+  "defaults": {
+    "timeout_ms": 30000
+  },
+  "tool_policy": {
+    "enabled_tools": ["deva_ai_tts", "deva_storage_kv_set"],
+    "spend_caps": {
+      "session_karma": 100,
+      "default_tool_karma": 25,
+      "per_tool_karma": {
+        "deva_ai_tts": 50,
+        "deva_storage_kv_set": 10
+      }
+    }
+  }
+}
+```
+
+For paid tools, set both `spend_caps.session_karma` and either `spend_caps.default_tool_karma` or a `spend_caps.per_tool_karma` entry for the enabled tool.
 
 ## x402 USDC Payment Flow
 
@@ -72,7 +112,7 @@ Example tool error payload:
 }
 ```
 
-Clients/agents can use this challenge to pay with USDC, then retry the same tool call.
+Clients/agents can use this challenge to pay with USDC, then retry the same tool call. If the challenge amount exceeds the configured local caps, the server returns a local policy error instead of the challenge.
 
 ## MCP Configuration
 
@@ -264,6 +304,14 @@ Config shape:
   },
   "defaults": {
     "timeout_ms": 30000
+  },
+  "tool_policy": {
+    "enabled_tools": [],
+    "spend_caps": {
+      "session_karma": 0,
+      "default_tool_karma": 0,
+      "per_tool_karma": {}
+    }
   }
 }
 ```
@@ -282,3 +330,5 @@ Scripts:
 - `npm run dev`
 - `npm run start`
 - `npm run test`
+
+Release publishing is documented in [docs/release-runbook.md](docs/release-runbook.md).

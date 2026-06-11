@@ -6,6 +6,7 @@ import { withKarmaCost } from "./billing.js";
 import { RuntimeConfig, redactApiKey } from "./config.js";
 import { DevaClient } from "./deva-client.js";
 import { formatErrorForTool } from "./errors.js";
+import { ToolPolicyEnforcer, ToolSpendReservation, assertKnownToolPolicies } from "./tool-policy.js";
 import { createAgentTools } from "./tools/agent.js";
 import { createAiTools } from "./tools/ai.js";
 import { createBalanceTools } from "./tools/balance.js";
@@ -34,6 +35,7 @@ export class DevaMcpServer {
   private readonly client: DevaClient;
   private readonly auth: AuthManager;
   private readonly tools: ToolDefinition[];
+  private readonly toolPolicy: ToolPolicyEnforcer;
 
   constructor(private readonly config: RuntimeConfig) {
     this.client = new DevaClient(config, () => this.config.apiKey);
@@ -55,11 +57,13 @@ export class DevaMcpServer {
       ...createMarketplaceTools(),
       ...createServerTools()
     ];
+    assertKnownToolPolicies(this.tools);
+    this.toolPolicy = new ToolPolicyEnforcer(config.toolPolicy);
 
     this.mcpServer = new Server(
       {
-        name: "@deva/mcp-server",
-        version: "0.1.0"
+        name: "@deva-me/mcp-server",
+        version: "0.1.2"
       },
       {
         capabilities: {
@@ -80,11 +84,13 @@ export class DevaMcpServer {
   private registerHandlers(): void {
     this.mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
-        tools: this.tools.map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          inputSchema: tool.inputSchema
-        }))
+        tools: this.tools
+          .filter((tool) => this.toolPolicy.canList(tool.name))
+          .map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema
+          }))
       };
     });
 
@@ -99,7 +105,10 @@ export class DevaMcpServer {
         };
       }
 
+      let spendReservation: ToolSpendReservation | undefined;
+
       try {
+        spendReservation = this.toolPolicy.reserveSpend(toolName);
         const args = (request.params.arguments ?? {}) as Record<string, unknown>;
         const context: ToolContext = {
           client: this.client,
@@ -107,6 +116,8 @@ export class DevaMcpServer {
         };
 
         const payload = await tool.execute(args, context);
+        this.toolPolicy.settleSpend(spendReservation, payload);
+        spendReservation = undefined;
         const decorated = payload && typeof payload === "object" ? withKarmaCost(payload as Record<string, unknown>) : payload;
 
         return {
@@ -118,7 +129,14 @@ export class DevaMcpServer {
           ]
         };
       } catch (error) {
-        const message = formatErrorForTool(error);
+        this.toolPolicy.releaseSpend(spendReservation);
+        let message: string;
+        try {
+          this.toolPolicy.assertPaymentChallengeWithinCaps(toolName, error);
+          message = formatErrorForTool(error);
+        } catch (policyError) {
+          message = formatErrorForTool(policyError);
+        }
         return {
           isError: true,
           content: [

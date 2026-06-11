@@ -1,12 +1,12 @@
-# Task: Build @deva/mcp-server
+# Task: Build @deva-me/mcp-server
 
-You are building a Deva MCP Server — an npm package (`@deva/mcp-server`) that exposes Deva's Agent Resources REST API as MCP tools for Claude Code, Cursor, OpenClaw, and any MCP-compatible client.
+You are building a Deva MCP Server — an npm package (`@deva-me/mcp-server`) that exposes Deva's Agent Resources REST API as MCP tools for Claude Code, Cursor, OpenClaw, and any MCP-compatible client.
 
 ## Architecture
 
 - **Runtime:** Node.js 20+ / TypeScript (ESM)
 - **MCP transport:** stdio (use `@modelcontextprotocol/sdk`)
-- **Package name:** `@deva/mcp-server`
+- **Package name:** `@deva-me/mcp-server`
 - **Binary name:** `deva-mcp-server` (for npx execution)
 
 ## Structure
@@ -158,7 +158,7 @@ All tools use `deva_<domain>_<action>` naming.
   "mcpServers": {
     "deva": {
       "command": "npx",
-      "args": ["-y", "@deva/mcp-server"],
+      "args": ["-y", "@deva-me/mcp-server"],
       "env": { "DEVA_API_KEY": "deva_xxx" }
     }
   }
@@ -171,7 +171,7 @@ All tools use `deva_<domain>_<action>` naming.
   "mcpServers": {
     "deva": {
       "command": "npx",
-      "args": ["-y", "@deva/mcp-server"]
+      "args": ["-y", "@deva-me/mcp-server"]
     }
   }
 }
@@ -181,7 +181,7 @@ All tools use `deva_<domain>_<action>` naming.
 ```toml
 [mcp_servers.deva]
 command = "npx"
-args = ["-y", "@deva/mcp-server"]
+args = ["-y", "@deva-me/mcp-server"]
 
 [mcp_servers.deva.env]
 DEVA_API_KEY = "deva_xxx"
@@ -204,10 +204,10 @@ DEVA_API_KEY = "deva_xxx"
 
 ## Deliverables
 
-1. Working MCP server that can be run via `npx @deva/mcp-server`
+1. Working MCP server that can be run via `npx @deva-me/mcp-server`
 2. All tools listed above implemented and typed
 3. README with setup instructions and integration examples
 4. package.json with proper bin field, dependencies, build script
 5. Initial commit with everything working
 
-When completely finished, run: git add -A && git commit -m "feat: initial @deva/mcp-server with 35+ MCP tools" && git push -u origin master
+When completely finished, run: git add -A && git commit -m "feat: initial @deva-me/mcp-server with 35+ MCP tools" && git push -u origin master

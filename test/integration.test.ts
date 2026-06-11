@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RuntimeConfig } from "../src/config.js";
 import { DevaClient } from "../src/deva-client.js";
+import { buildDefaultToolPolicyConfig } from "../src/tool-policy.js";
 import { createAgentTools } from "../src/tools/agent.js";
 import { createAiTools } from "../src/tools/ai.js";
 import { createBalanceTools } from "../src/tools/balance.js";
@@ -14,6 +15,7 @@ const runIntegration = apiKey ? describe : describe.skip;
 const apiBase = process.env.DEVA_API_BASE ?? "https://api.deva.me";
 
 function makeConfig(): RuntimeConfig {
+  const toolPolicy = buildDefaultToolPolicyConfig();
   return {
     apiBase,
     profile: "default",
@@ -25,8 +27,10 @@ function makeConfig(): RuntimeConfig {
       profile: "default",
       api_base: apiBase,
       agents: { default: { api_key: apiKey } },
-      defaults: { timeout_ms: 30_000 }
-    }
+      defaults: { timeout_ms: 30_000 },
+      tool_policy: toolPolicy
+    },
+    toolPolicy
   };
 }
 

@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { buildDefaultToolPolicyConfig, normalizeToolPolicyConfig } from "./tool-policy.js";
+import type { ToolPolicyConfig } from "./tool-policy.js";
 
 export type LogLevel = "error" | "warn" | "info" | "debug";
 
@@ -16,6 +18,7 @@ export interface DevaMcpConfigFile {
   defaults: {
     timeout_ms: number;
   };
+  tool_policy: ToolPolicyConfig;
 }
 
 export interface RuntimeConfig {
@@ -26,6 +29,7 @@ export interface RuntimeConfig {
   logLevel: LogLevel;
   configPath: string;
   configFile: DevaMcpConfigFile;
+  toolPolicy: ToolPolicyConfig;
 }
 
 const DEFAULT_API_BASE = "https://api.deva.me";
@@ -58,7 +62,8 @@ function buildDefaultFile(): DevaMcpConfigFile {
     },
     defaults: {
       timeout_ms: DEFAULT_TIMEOUT_MS
-    }
+    },
+    tool_policy: buildDefaultToolPolicyConfig()
   };
 }
 
@@ -76,7 +81,8 @@ export async function loadConfig(): Promise<RuntimeConfig> {
       agents: parsed.agents ?? { [DEFAULT_PROFILE]: {} },
       defaults: {
         timeout_ms: parsed.defaults?.timeout_ms ?? DEFAULT_TIMEOUT_MS
-      }
+      },
+      tool_policy: normalizeToolPolicyConfig(parsed.tool_policy)
     };
   } catch {
     await saveConfigFile(configPath, fileConfig);
@@ -101,7 +107,8 @@ export async function loadConfig(): Promise<RuntimeConfig> {
     timeoutMs,
     logLevel,
     configPath,
-    configFile: fileConfig
+    configFile: fileConfig,
+    toolPolicy: fileConfig.tool_policy
   };
 }
 
