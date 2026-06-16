@@ -49,12 +49,16 @@ describe("ToolPolicyEnforcer", () => {
     const policy = new ToolPolicyEnforcer(buildDefaultToolPolicyConfig());
 
     expect(policy.canList("deva_balance_get")).toBe(true);
+    expect(policy.canList("deva_resource_inspect")).toBe(true);
     expect(policy.canList("deva_social_feed_get")).toBe(true);
     expect(policy.canList("deva_ai_tts")).toBe(false);
+    expect(policy.canList("deva_resource_run")).toBe(false);
     expect(policy.canList("deva_storage_file_delete")).toBe(false);
 
     expect(() => policy.assertCanExecute("deva_balance_get")).not.toThrow();
+    expect(() => policy.assertCanExecute("deva_resource_inspect")).not.toThrow();
     expect(() => policy.assertCanExecute("deva_ai_tts")).toThrow(/disabled by local policy/);
+    expect(() => policy.assertCanExecute("deva_resource_run")).toThrow(/disabled by local policy/);
     expect(() => policy.assertCanExecute("deva_storage_file_delete")).toThrow(/disabled by local policy/);
   });
 

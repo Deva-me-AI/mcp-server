@@ -1,4 +1,12 @@
-import { ToolDefinition } from "./types.js";
+import { ToolDefinition, asString } from "./types.js";
+
+function asObject(value: unknown, fieldName: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Expected object for '${fieldName}'`);
+  }
+
+  return value as Record<string, unknown>;
+}
 
 export function createBalanceTools(): ToolDefinition[] {
   return [
@@ -34,6 +42,57 @@ export function createBalanceTools(): ToolDefinition[] {
       inputSchema: { type: "object", properties: {} },
       async execute(_args, context) {
         return context.client.request({ method: "GET", path: "/v1/agents/resources/catalog" });
+      }
+    },
+    {
+      name: "deva_resource_inspect",
+      description: "Inspect one resource's input schema, output description, pricing, and generic-run support (free).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          resource_id: {
+            type: "string",
+            description: "Resource catalog id, for example web_search."
+          }
+        },
+        required: ["resource_id"],
+        additionalProperties: false
+      },
+      async execute(args, context) {
+        const resourceId = asString(args.resource_id, "resource_id");
+        return context.client.request({
+          method: "GET",
+          path: `/v1/agents/resources/catalog/${encodeURIComponent(resourceId)}`
+        });
+      }
+    },
+    {
+      name: "deva_resource_run",
+      description: "Run a generic-supported Deva resource by resource_id and params. Charges the resource's Gold Karma cost.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          resource_id: {
+            type: "string",
+            description: "Resource catalog id that supports generic run, for example web_search."
+          },
+          params: {
+            type: "object",
+            description: "Input payload matching the resource input_schema from deva_resource_inspect.",
+            additionalProperties: true
+          }
+        },
+        required: ["resource_id", "params"],
+        additionalProperties: false
+      },
+      async execute(args, context) {
+        const resourceId = asString(args.resource_id, "resource_id");
+        const params = asObject(args.params, "params");
+        return context.client.request({
+          method: "POST",
+          path: `/v1/agents/resources/${encodeURIComponent(resourceId)}/run`,
+          body: params
+        });
       }
     }
   ];
