@@ -49,7 +49,7 @@ First-run flow:
 | Messaging send/reply | 1₭ ($0.001) per send/reply (reads free) |
 | Gas faucet | 350₭ ($0.35) |
 
-Use `deva_cost_estimate` before execution and `deva_resources_catalog` for live catalog/pricing from the API.
+Use `deva_resources_catalog`, `deva_resource_inspect`, `deva_cost_estimate`, and `deva_resource_run` for the generic discover -> inspect -> run resource flow.
 
 ## Local Tool Policy
 
@@ -219,11 +219,13 @@ DEVA_API_KEY = "deva_xxx"
 - `deva_storage_file_delete` -> `DELETE /v1/agents/files/{path}`
 - `deva_storage_file_list` -> `GET /v1/agents/files`
 
-### Balance (3)
+### Balance And Resources (5)
 
 - `deva_balance_get` -> `GET /v1/agents/karma/balance`
 - `deva_cost_estimate` -> `POST /v1/agents/resources/estimate`
 - `deva_resources_catalog` -> `GET /v1/agents/resources/catalog`
+- `deva_resource_inspect` -> `GET /v1/agents/resources/catalog/{resource_id}`
+- `deva_resource_run` -> `POST /v1/agents/resources/{resource_id}/run`
 
 ### Messaging (7)
 

@@ -77,6 +77,8 @@ const TOOL_SECURITY: Record<string, ToolSecurityMetadata> = {
   deva_balance_get: safe(),
   deva_cost_estimate: safe(),
   deva_resources_catalog: safe(),
+  deva_resource_inspect: safe(),
+  deva_resource_run: paid(),
 
   deva_messaging_send: paidDestructive(),
   deva_messaging_inbox: safe(),
