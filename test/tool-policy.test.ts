@@ -49,12 +49,16 @@ describe("ToolPolicyEnforcer", () => {
     const policy = new ToolPolicyEnforcer(buildDefaultToolPolicyConfig());
 
     expect(policy.canList("deva_balance_get")).toBe(true);
+    expect(policy.canList("deva_resource_inspect")).toBe(true);
     expect(policy.canList("deva_social_feed_get")).toBe(true);
     expect(policy.canList("deva_ai_tts")).toBe(false);
+    expect(policy.canList("deva_resource_run")).toBe(false);
     expect(policy.canList("deva_storage_file_delete")).toBe(false);
 
     expect(() => policy.assertCanExecute("deva_balance_get")).not.toThrow();
+    expect(() => policy.assertCanExecute("deva_resource_inspect")).not.toThrow();
     expect(() => policy.assertCanExecute("deva_ai_tts")).toThrow(/disabled by local policy/);
+    expect(() => policy.assertCanExecute("deva_resource_run")).toThrow(/disabled by local policy/);
     expect(() => policy.assertCanExecute("deva_storage_file_delete")).toThrow(/disabled by local policy/);
   });
 
@@ -89,6 +93,31 @@ describe("ToolPolicyEnforcer", () => {
     policy.recordSpend("deva_ai_tts", { data: { karma_cost: 1 } });
 
     expect(() => policy.assertCanExecute("deva_ai_tts")).toThrow(/per-tool karma spend cap/);
+  });
+
+  it("settles generic resource charges and keeps enforcing spend caps", () => {
+    const policy = new ToolPolicyEnforcer(
+      normalizeToolPolicyConfig({
+        enabled_tools: ["deva_resource_run"],
+        spend_caps: { session_karma: 5, default_tool_karma: 5 }
+      })
+    );
+
+    const reservation = policy.reserveSpend("deva_resource_run");
+    expect(policy.settleSpend(reservation, {
+      resource_id: "web_search",
+      karma_charged: 2,
+      result: { results: [] }
+    })).toBe(2);
+    expect(policy.getSessionKarmaPending()).toBe(0);
+    expect(policy.getSessionKarmaSpent()).toBe(2);
+    expect(policy.getToolKarmaSpent("deva_resource_run")).toBe(2);
+
+    const next = policy.reserveSpend("deva_resource_run");
+    expect(() => policy.settleSpend(next, { karma_charged: 4 })).toThrow(/remaining per-session karma spend cap/);
+    expect(policy.getSessionKarmaSpent()).toBe(6);
+    expect(policy.getSessionKarmaPending()).toBe(0);
+    expect(() => policy.assertCanExecute("deva_resource_run")).toThrow(/per-session karma spend cap/);
   });
 
   it("reserves pending paid spend before settlement", () => {

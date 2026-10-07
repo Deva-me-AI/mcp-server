@@ -77,6 +77,8 @@ const TOOL_SECURITY: Record<string, ToolSecurityMetadata> = {
   deva_balance_get: safe(),
   deva_cost_estimate: safe(),
   deva_resources_catalog: safe(),
+  deva_resource_inspect: safe(),
+  deva_resource_run: paid(),
 
   deva_messaging_send: paidDestructive(),
   deva_messaging_inbox: safe(),
@@ -228,7 +230,7 @@ export function extractKarmaCost(payload: unknown): number | undefined {
     return undefined;
   }
 
-  for (const key of ["karma_cost", "karmaCost", "cost_karma"]) {
+  for (const key of ["karma_charged", "karma_cost", "karmaCost", "cost_karma"]) {
     const cost = parseKarmaCost(record[key]);
     if (cost !== undefined) {
       return cost;
