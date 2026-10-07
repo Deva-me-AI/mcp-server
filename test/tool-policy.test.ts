@@ -95,6 +95,31 @@ describe("ToolPolicyEnforcer", () => {
     expect(() => policy.assertCanExecute("deva_ai_tts")).toThrow(/per-tool karma spend cap/);
   });
 
+  it("settles generic resource charges and keeps enforcing spend caps", () => {
+    const policy = new ToolPolicyEnforcer(
+      normalizeToolPolicyConfig({
+        enabled_tools: ["deva_resource_run"],
+        spend_caps: { session_karma: 5, default_tool_karma: 5 }
+      })
+    );
+
+    const reservation = policy.reserveSpend("deva_resource_run");
+    expect(policy.settleSpend(reservation, {
+      resource_id: "web_search",
+      karma_charged: 2,
+      result: { results: [] }
+    })).toBe(2);
+    expect(policy.getSessionKarmaPending()).toBe(0);
+    expect(policy.getSessionKarmaSpent()).toBe(2);
+    expect(policy.getToolKarmaSpent("deva_resource_run")).toBe(2);
+
+    const next = policy.reserveSpend("deva_resource_run");
+    expect(() => policy.settleSpend(next, { karma_charged: 4 })).toThrow(/remaining per-session karma spend cap/);
+    expect(policy.getSessionKarmaSpent()).toBe(6);
+    expect(policy.getSessionKarmaPending()).toBe(0);
+    expect(() => policy.assertCanExecute("deva_resource_run")).toThrow(/per-session karma spend cap/);
+  });
+
   it("reserves pending paid spend before settlement", () => {
     const policy = new ToolPolicyEnforcer(
       normalizeToolPolicyConfig({

@@ -230,7 +230,7 @@ export function extractKarmaCost(payload: unknown): number | undefined {
     return undefined;
   }
 
-  for (const key of ["karma_cost", "karmaCost", "cost_karma"]) {
+  for (const key of ["karma_charged", "karma_cost", "karmaCost", "cost_karma"]) {
     const cost = parseKarmaCost(record[key]);
     if (cost !== undefined) {
       return cost;
