@@ -32,7 +32,7 @@ describe("DevaClient", () => {
     });
 
     const client = new DevaClient(makeConfig(), () => "deva_test", { fetch: fetchMock });
-    const result = await client.request<{ ok: boolean }>({ method: "GET", path: "/agents/status" });
+    const result = await client.request<{ ok: boolean }>({ method: "GET", path: "/v1/agents/status" });
 
     expect(result.ok).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -45,7 +45,7 @@ describe("DevaClient", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
 
     const client = new DevaClient(makeConfig(), () => "deva_test", { fetch: fetchMock });
-    const result = await client.request<{ ok: boolean }>({ method: "GET", path: "/agents/status" });
+    const result = await client.request<{ ok: boolean }>({ method: "GET", path: "/v1/agents/status" });
 
     expect(result.ok).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(2);

@@ -111,7 +111,7 @@ describe("tool inventory", () => {
 
     await createAgentTools().find((tool) => tool.name === "deva_agents_discover")!.execute({}, context);
     await createSocialTools().find((tool) => tool.name === "deva_social_prompt")!.execute(
-      { target: "truejaian", message: "hello" },
+      { target: "example_user", message: "hello" },
       context
     );
     await createSocialTools().find((tool) => tool.name === "deva_social_x_user_tweets")!.execute({ username: "deva_ai" }, context);
@@ -132,18 +132,18 @@ describe("tool inventory", () => {
       .execute({ title: "Add docs", description: "Please add docs" }, context);
     await createGovernanceTools().find((tool) => tool.name === "deva_feature_request_vote")!.execute({ request_id: "req_123" }, context);
 
-    expect(calls[0]).toEqual({ method: "GET", path: "/agents/discover", query: { limit: 20, offset: 0 }, body: undefined });
+    expect(calls[0]).toEqual({ method: "GET", path: "/v1/agents/discover", query: { limit: 20, offset: 0 }, body: undefined });
     expect(calls[1]).toEqual({
       method: "POST",
-      path: "/agents/prompt",
+      path: "/v1/agents/prompt",
       query: undefined,
-      body: { target: "truejaian", message: "hello" }
+      body: { target: "example_user", message: "hello" }
     });
     expect(calls[2]).toEqual({
       method: "POST",
-      path: "/tools/x/user-tweets",
+      path: "/v1/tools/x/user-tweets",
       query: undefined,
-      body: { username: "deva_ai", limit: 10 }
+      body: { username: "deva_ai", count: 10 }
     });
     expect(calls[3]).toEqual({
       method: "POST",
@@ -165,7 +165,7 @@ describe("tool inventory", () => {
     });
     expect(calls[6]).toEqual({
       method: "POST",
-      path: "/agents/gas-faucet",
+      path: "/v1/agents/gas-faucet",
       query: undefined,
       body: { wallet_address: "0x0000000000000000000000000000000000000001" }
     });
@@ -176,5 +176,58 @@ describe("tool inventory", () => {
       body: { title: "Add docs", description: "Please add docs" }
     });
     expect(calls[8]).toEqual({ method: "POST", path: "/v1/agents/features/req_123/vote", query: undefined, body: undefined });
+  });
+
+  it("maps every social and wallet tool to its /v1 path (bare /agents/* and /tools/* 404)", async () => {
+    const calls: Array<{ method: string; path: string }> = [];
+    const context = {
+      client: {
+        request: async (options: { method: string; path: string }) => {
+          calls.push({ method: options.method, path: options.path });
+          return {};
+        }
+      },
+      auth: {} as never
+    };
+    const args: Record<string, Record<string, unknown>> = {
+      deva_social_post_create: { content: "hi" },
+      deva_social_feed_get: {},
+      deva_social_post_get: { post_id: "p1" },
+      deva_social_post_replies_get: { post_id: "p1" },
+      deva_social_post_react: { post_id: "p1", reaction: "like" },
+      deva_social_agents_search: { q: "genie" },
+      deva_social_follow: { username: "bob.agent" },
+      deva_social_unfollow: { username: "bob.agent" },
+      deva_social_followers_get: { username: "bob.agent" },
+      deva_social_following_get: { username: "bob.agent" },
+      deva_social_x_search: { query: "deva" },
+      deva_social_prompt: { target: "example_user", message: "hello" },
+      deva_social_x_user_tweets: { username: "deva_ai", count: 5 },
+      deva_gas_faucet: { wallet_address: "0x0000000000000000000000000000000000000001" }
+    };
+    const expected: Record<string, string> = {
+      deva_social_post_create: "POST /v1/agents/posts",
+      deva_social_feed_get: "GET /v1/agents/feed",
+      deva_social_post_get: "GET /v1/agents/posts/p1",
+      deva_social_post_replies_get: "GET /v1/agents/posts/p1/replies",
+      deva_social_post_react: "PUT /v1/agents/posts/p1/react",
+      deva_social_agents_search: "GET /v1/agents/search",
+      deva_social_follow: "POST /v1/agents/bob.agent/follow",
+      deva_social_unfollow: "DELETE /v1/agents/bob.agent/follow",
+      deva_social_followers_get: "GET /v1/agents/bob.agent/followers",
+      deva_social_following_get: "GET /v1/agents/bob.agent/following",
+      deva_social_x_search: "POST /v1/tools/x/search",
+      deva_social_prompt: "POST /v1/agents/prompt",
+      deva_social_x_user_tweets: "POST /v1/tools/x/user-tweets",
+      deva_gas_faucet: "POST /v1/agents/gas-faucet"
+    };
+    const tools = [...createSocialTools(), ...createWalletTools()];
+    expect(new Set(tools.map((t) => t.name))).toEqual(new Set(Object.keys(expected)));
+    for (const tool of tools) {
+      calls.length = 0;
+      await tool.execute(args[tool.name], context);
+      expect(calls).toHaveLength(1);
+      expect(`${calls[0].method} ${calls[0].path}`, tool.name).toBe(expected[tool.name]);
+    }
   });
 });

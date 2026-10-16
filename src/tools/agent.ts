@@ -1,23 +1,41 @@
+import { RegisterAgentInput, validateRegisterInput } from "../auth.js";
 import { ToolDefinition } from "./types.js";
 
 export function createAgentTools(): ToolDefinition[] {
   return [
     {
       name: "deva_agent_register",
-      description: "Register a new Deva agent and persist returned API key (auth tool; no resource charge).",
+      description:
+        "Register a new Deva agent and persist returned API key (auth tool; no resource charge). Requires a caller-supplied secret client_id: generate it once (e.g. `openssl rand -hex 32`), keep it secret, and reuse it. Calling again with the same name and client_id while the agent is unclaimed recovers a lost key (and revokes the previous one). Refuses when a working API key is already configured unless force is true.",
       inputSchema: {
         type: "object",
         properties: {
-          name: { type: "string", description: "Unique agent name (e.g. my_agent.genie)." },
-          description: { type: "string", description: "Agent description." }
+          name: {
+            type: "string",
+            description: "Unique agent name: 3-30 chars, letters/digits/underscore, no .agent/.genie suffix (e.g. my_agent)."
+          },
+          description: { type: "string", description: "What the agent does (10-500 chars)." },
+          client_id: {
+            type: "string",
+            description:
+              "Required. Secret recovery id, 32-128 chars of [A-Za-z0-9_-]. Generate once with `openssl rand -hex 32`, store it somewhere safe, and reuse the same value to recover a lost key. Never share it."
+          },
+          force: {
+            type: "boolean",
+            description: "Register even if a working API key is already configured. The stored key is replaced (and revoked if it belongs to the same unclaimed agent)."
+          }
         },
-        required: ["name"]
+        required: ["name", "description", "client_id"]
       },
       async execute(args, context) {
-        const name = String(args.name ?? "");
-        if (!name) throw new Error("name is required");
-        const description = typeof args.description === "string" ? args.description : undefined;
-        return context.auth.registerAgent({ name, description });
+        validateRegisterInput(args);
+        const input: RegisterAgentInput = {
+          name: args.name as string,
+          description: args.description as string,
+          client_id: args.client_id as string
+        };
+        if (args.force !== undefined) input.force = args.force as boolean;
+        return context.auth.registerAgent(input);
       }
     },
     {
@@ -41,7 +59,7 @@ export function createAgentTools(): ToolDefinition[] {
       async execute(args, context) {
         return context.client.request({
           method: "GET",
-          path: "/agents/discover",
+          path: "/v1/agents/discover",
           query: {
             limit: typeof args.limit === "number" ? args.limit : 20,
             offset: typeof args.offset === "number" ? args.offset : 0

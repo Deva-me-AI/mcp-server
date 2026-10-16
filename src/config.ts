@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buildDefaultToolPolicyConfig, normalizeToolPolicyConfig } from "./tool-policy.js";
@@ -112,23 +112,32 @@ export async function loadConfig(): Promise<RuntimeConfig> {
   };
 }
 
+/**
+ * Writes the config with mode 0600. The explicit chmod also tightens a file created earlier
+ * with looser permissions, since `mode` only applies when the file is created.
+ */
 export async function saveConfigFile(configPath: string, config: DevaMcpConfigFile): Promise<void> {
-  await mkdir(path.dirname(configPath), { recursive: true });
+  await mkdir(path.dirname(configPath), { recursive: true, mode: 0o700 });
+  // Tighten an existing file before writing the key into it.
+  await chmod(configPath, 0o600).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+  });
   await writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+  await chmod(configPath, 0o600);
 }
 
+/** Persists the API key; the in-memory config is only updated once the write succeeded. */
 export async function saveApiKey(config: RuntimeConfig, apiKey: string, name?: string): Promise<void> {
-  config.configFile.profile = config.profile;
-  if (!config.configFile.agents[config.profile]) {
-    config.configFile.agents[config.profile] = {};
-  }
-
-  config.configFile.agents[config.profile].api_key = apiKey;
+  const next = structuredClone(config.configFile);
+  next.profile = config.profile;
+  next.agents[config.profile] ??= {};
+  next.agents[config.profile].api_key = apiKey;
   if (name) {
-    config.configFile.agents[config.profile].name = name;
+    next.agents[config.profile].name = name;
   }
 
-  await saveConfigFile(config.configPath, config.configFile);
+  await saveConfigFile(config.configPath, next);
+  config.configFile = next;
 }
 
 export function redactApiKey(value: string | undefined): string {
