@@ -8,23 +8,25 @@ export function createServerTools(): ToolDefinition[] {
       inputSchema: {
         type: "object",
         properties: {
-          tier: { type: "string", description: "Server tier.", enum: ["FREE", "SMALL", "MEDIUM"] },
-          name: { type: "string", description: "Optional server name." },
-          description: { type: "string", description: "Optional server description." }
-        },
-        required: ["tier"]
+          size: { type: "string", description: "Server size.", enum: ["free", "free_fc", "small", "medium"] },
+          tier: { type: "string", description: "Deprecated alias for size (case-insensitive)." },
+          name: { type: "string", description: "Optional server name: lowercase letters, digits, hyphens (max 64)." },
+          region: { type: "string", description: "Region (only us-east-1 is supported; default)." }
+        }
       },
       async execute(args, context) {
-        const tier = String(args.tier ?? "");
-        if (!tier) throw new Error("tier is required");
+        // The API field is lowercase `size`; accept the old uppercase `tier` for compatibility.
+        const raw = typeof args.size === "string" && args.size ? args.size : typeof args.tier === "string" ? args.tier : "";
+        const size = raw.toLowerCase();
+        if (!size) throw new Error("size is required");
 
         return context.client.request({
           method: "POST",
-          path: "/v1/agents/servers",
+          path: "/v1/agents/servers/provision",
           body: {
-            tier,
+            size,
             name: typeof args.name === "string" ? args.name : undefined,
-            description: typeof args.description === "string" ? args.description : undefined
+            region: typeof args.region === "string" ? args.region : undefined
           }
         });
       }

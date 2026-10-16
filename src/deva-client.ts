@@ -9,6 +9,8 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   requiresAuth?: boolean;
   timeoutMs?: number;
+  /** Retries after timeouts/5xx/network errors. Set to 0 for non-idempotent, billed calls. */
+  maxRetries?: number;
 }
 
 export interface HttpClient {
@@ -120,14 +122,17 @@ export class DevaClient {
 
     let attempt = 0;
     let waitMs = 300;
+    const maxRetries = options.maxRetries ?? 3;
 
     while (true) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? this.config.timeoutMs);
 
       try {
+        // Multipart bodies (FormData) must let fetch set the boundary header itself.
+        const isMultipart = typeof FormData !== "undefined" && options.body instanceof FormData;
         const headers: Record<string, string> = {
-          "content-type": "application/json",
+          ...(isMultipart ? {} : { "content-type": "application/json" }),
           ...options.headers
         };
 
@@ -142,7 +147,8 @@ export class DevaClient {
         const response = await this.httpClient.fetch(url, {
           method: options.method,
           headers,
-          body: options.body === undefined ? undefined : JSON.stringify(options.body),
+          body:
+            options.body === undefined ? undefined : isMultipart ? (options.body as FormData) : JSON.stringify(options.body),
           signal: controller.signal
         });
 
@@ -190,7 +196,7 @@ export class DevaClient {
           paymentChallenge
         });
 
-        if (RETRYABLE.has(response.status) && attempt < 3) {
+        if (RETRYABLE.has(response.status) && attempt < maxRetries) {
           await sleep(waitMs);
           attempt += 1;
           waitMs *= 2;
@@ -201,7 +207,7 @@ export class DevaClient {
       } catch (error) {
         const isAbort = error instanceof Error && error.name === "AbortError";
 
-        if (isAbort && attempt < 3) {
+        if (isAbort && attempt < maxRetries) {
           await sleep(waitMs);
           attempt += 1;
           waitMs *= 2;
@@ -212,7 +218,7 @@ export class DevaClient {
           throw error;
         }
 
-        if (attempt < 3) {
+        if (attempt < maxRetries) {
           await sleep(waitMs);
           attempt += 1;
           waitMs *= 2;

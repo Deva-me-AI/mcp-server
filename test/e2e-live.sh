@@ -59,11 +59,11 @@ extract_balance() {
   local key="$1"
   local out="${TMP_DIR}/${key}.json"
   if [[ -f "${out}" ]]; then
-    node -e "const fs=require('fs');const p=process.argv[1];try{const j=JSON.parse(fs.readFileSync(p,'utf8'));const v=j.balance??j.karma??j?.data?.balance??j?.data?.karma??'';if(v!==undefined&&v!==null)process.stdout.write(String(v));}catch{}" "${out}"
+    node -e "const fs=require('fs');const p=process.argv[1];try{const j=JSON.parse(fs.readFileSync(p,'utf8'));const v=j.total_spendable??j?.data?.total_spendable??j.balance??j?.data?.balance??'';if(v!==undefined&&v!==null)process.stdout.write(String(v));}catch{}" "${out}"
   fi
 }
 
-safe_call "balance_before" GET "/v1/agents/karma/balance"
+safe_call "balance_before" GET "/v1/agents/balance?unit=credits"
 BALANCE_BEFORE="$(extract_balance balance_before)"
 if [[ -z "${BALANCE_BEFORE}" ]]; then BALANCE_BEFORE="Unknown"; fi
 
@@ -72,11 +72,11 @@ safe_call "kv_put" PUT "/v1/agents/kv/test-key" '{"value":"hello"}'
 safe_call "kv_get" GET "/v1/agents/kv/test-key"
 safe_call "tts" POST "/v1/ai/tts" '{"text":"hello world","voice":"nova"}'
 safe_call "x_search" POST "/v1/tools/x/search" '{"query":"deva ai","max_results":1}'
-safe_call "conversations" GET "/v1/agents/messages/conversations"
+safe_call "inbox" GET "/v1/agents/messages/inbox"
 safe_call "catalog" GET "/v1/agents/resources/catalog"
 safe_call "estimate" POST "/v1/agents/resources/estimate" '{"resource_id":"tts","params":{"text":"hello"}}'
 
-safe_call "balance_after" GET "/v1/agents/karma/balance"
+safe_call "balance_after" GET "/v1/agents/balance?unit=credits"
 BALANCE_AFTER="$(extract_balance balance_after)"
 if [[ -z "${BALANCE_AFTER}" ]]; then BALANCE_AFTER="Unknown"; fi
 
@@ -96,7 +96,7 @@ if [[ -z "${BALANCE_AFTER}" ]]; then BALANCE_AFTER="Unknown"; fi
     echo "| ${key} | ${method} | ${path} | ${status} | \`${response}\` |"
   done
   echo
-  echo "## Karma Balance"
+  echo "## Balance (credits, total_spendable)"
   echo
   echo "- Before: ${BALANCE_BEFORE}"
   echo "- After: ${BALANCE_AFTER}"

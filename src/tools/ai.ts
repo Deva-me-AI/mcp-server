@@ -1,5 +1,47 @@
 import { ToolDefinition } from "./types.js";
 
+// Mirrors the formats and size limit the transcription API accepts.
+export const SUPPORTED_AUDIO_FORMATS: Record<string, string> = {
+  mp3: "audio/mpeg",
+  mp4: "audio/mp4",
+  mpeg: "audio/mpeg",
+  mpga: "audio/mpeg",
+  m4a: "audio/mp4",
+  wav: "audio/wav",
+  webm: "audio/webm",
+  ogg: "audio/ogg",
+  flac: "audio/flac"
+};
+export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+// Longest unpadded/padded base64 string that can decode to MAX_AUDIO_BYTES.
+const MAX_AUDIO_BASE64_CHARS = Math.ceil(MAX_AUDIO_BYTES / 3) * 4;
+const SUPPORTED_LIST = Object.keys(SUPPORTED_AUDIO_FORMATS).join(", ");
+
+function audioContentType(filename: string): string {
+  const match = /\.([A-Za-z0-9]+)$/.exec(filename);
+  const ext = match ? match[1].toLowerCase() : "";
+  const type = Object.prototype.hasOwnProperty.call(SUPPORTED_AUDIO_FORMATS, ext) ? SUPPORTED_AUDIO_FORMATS[ext] : undefined;
+  if (!type) {
+    throw new Error(`filename must end with a supported audio extension; supported formats: ${SUPPORTED_LIST}`);
+  }
+  return type;
+}
+
+function decodeAudioBase64(input: string): Uint8Array<ArrayBuffer> {
+  // Bound the raw string before any copying/decoding work (allow some whitespace).
+  if (input.length > MAX_AUDIO_BASE64_CHARS * 2) throw new Error("audio exceeds the 25MB limit");
+  const normalized = input.replace(/\s+/g, "");
+  if (normalized.length > MAX_AUDIO_BASE64_CHARS) throw new Error("audio exceeds the 25MB limit");
+  if (!/^[A-Za-z0-9+/_-]*={0,2}$/.test(normalized) || normalized.replace(/=+$/, "").length % 4 === 1) {
+    throw new Error("audio_base64 is not valid base64");
+  }
+  const decoded = Buffer.from(normalized, "base64");
+  if (decoded.byteLength > MAX_AUDIO_BYTES) throw new Error("audio exceeds the 25MB limit");
+  const bytes = new Uint8Array(decoded.byteLength);
+  bytes.set(decoded);
+  return bytes;
+}
+
 export function createAiTools(): ToolDefinition[] {
   return [
     {
@@ -96,7 +138,7 @@ export function createAiTools(): ToolDefinition[] {
 
         return context.client.request({
           method: "POST",
-          path: "/chat/completions",
+          path: "/v1/chat/completions",
           body: {
             model,
             messages: args.messages,
@@ -108,27 +150,39 @@ export function createAiTools(): ToolDefinition[] {
     },
     {
       name: "deva_ai_transcription",
-      description: "Transcribe audio using Groq Whisper. Supports mp3, wav, m4a, webm. Pricing: 5₭ ($0.005) per 24s audio.",
+      description: `Transcribe base64-encoded audio (${SUPPORTED_LIST}; max 25MB decoded). Pass audio_base64 plus a filename whose extension names the format. URLs are not accepted. Pricing: 5₭ ($0.005) per 24s audio.`,
       inputSchema: {
         type: "object",
         properties: {
-          audio_url: { type: "string", description: "URL to an audio file to transcribe." },
-          language: { type: "string", description: "Optional language hint." }
+          audio_base64: { type: "string", description: "Base64-encoded audio bytes (max 25MB decoded)." },
+          filename: {
+            type: "string",
+            description: `Filename sent with the upload; its extension sets the format (${SUPPORTED_LIST}).`
+          },
+          language: { type: "string", description: "Optional ISO 639-1 language hint (e.g. en, es)." }
         },
-        required: ["audio_url"]
+        required: ["audio_base64", "filename"]
       },
       async execute(args, context) {
-        const audioUrl = String(args.audio_url ?? "");
-        if (!audioUrl) throw new Error("audio_url is required");
+        if (args.audio_url !== undefined) {
+          throw new Error("audio_url is not supported; pass audio_base64 (and filename with an extension)");
+        }
+        const audioBase64 = typeof args.audio_base64 === "string" ? args.audio_base64 : "";
+        if (!audioBase64) throw new Error("audio_base64 is required");
+        const filename = typeof args.filename === "string" ? args.filename.trim() : "";
+        if (!filename) throw new Error(`filename is required; supported formats: ${SUPPORTED_LIST}`);
+        const contentType = audioContentType(filename);
 
-        return context.client.request({
-          method: "POST",
-          path: "/ai/transcribe",
-          body: {
-            audio_url: audioUrl,
-            language: typeof args.language === "string" ? args.language : undefined
-          }
-        });
+        const bytes = decodeAudioBase64(audioBase64);
+        if (bytes.byteLength === 0) throw new Error("audio is empty");
+
+        // The API takes multipart/form-data: file (required) + language (optional).
+        const form = new FormData();
+        form.append("file", new Blob([bytes], { type: contentType }), filename);
+        if (typeof args.language === "string" && args.language) form.append("language", args.language);
+
+        // Billed, non-idempotent upload: no automatic retries, and a long timeout for large files.
+        return context.client.request({ method: "POST", path: "/v1/ai/transcribe", body: form, timeoutMs: 300_000, maxRetries: 0 });
       }
     }
   ];

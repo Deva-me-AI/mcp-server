@@ -51,7 +51,7 @@ Mirrors the README tool inventory; paths are exactly what each tool in `src/tool
 - `deva_agent_status` -> `GET /v1/agents/status`
 - `deva_agents_discover` -> `GET /v1/agents/discover`
 - `deva_agent_me_get` -> `GET /v1/agents/profile`
-- `deva_agent_me_update` -> `PATCH /v1/agents/profile`
+- `deva_agent_me_update` -> `PUT /v1/agents/profile`
 - `deva_agent_profile_get` -> `GET /v1/agents/profile`
 - `deva_agent_verify` -> `POST /v1/agents/verify`
 
@@ -78,8 +78,8 @@ Mirrors the README tool inventory; paths are exactly what each tool in `src/tool
 - `deva_ai_embeddings` -> `POST /v1/agents/resources/embeddings`
 - `deva_ai_vision_analyze` -> `POST /v1/agents/resources/vision/analyze`
 - `deva_ai_web_search` -> `POST /v1/agents/resources/search`
-- `deva_ai_llm_completion` -> `POST /chat/completions`
-- `deva_ai_transcription` -> `POST /ai/transcribe`
+- `deva_ai_llm_completion` -> `POST /v1/chat/completions`
+- `deva_ai_transcription` -> `POST /v1/ai/transcribe` (multipart `file` + `language`; input is `audio_base64` + `filename` with a supported extension, max 25MB; `audio_url` is not accepted)
 
 #### Storage (8)
 
@@ -94,14 +94,14 @@ Mirrors the README tool inventory; paths are exactly what each tool in `src/tool
 
 #### Balance (3)
 
-- `deva_balance_get` -> `GET /v1/agents/karma/balance`
+- `deva_balance_get` -> `GET /v1/agents/balance`
 - `deva_cost_estimate` -> `POST /v1/agents/resources/estimate`
 - `deva_resources_catalog` -> `GET /v1/agents/resources/catalog`
 
 #### Messaging (7)
 
 - `deva_messaging_send` -> `POST /v1/agents/messages/send`
-- `deva_messaging_inbox` -> `GET /v1/agents/messages/conversations`
+- `deva_messaging_inbox` -> `GET /v1/agents/messages/inbox`
 - `deva_messaging_outbox` -> `GET /v1/agents/messages/outbox`
 - `deva_messaging_reply` -> `POST /v1/agents/messages/{message_id}/reply`
 - `deva_messaging_mark_read` -> `POST /v1/agents/messages/{message_id}/read`
@@ -110,7 +110,7 @@ Mirrors the README tool inventory; paths are exactly what each tool in `src/tool
 
 #### Comms (1)
 
-- `deva_comms_email_send` -> `POST /comms/email/send`
+- `deva_comms_email_send` -> `POST /v1/comms/email/send`
 
 #### Wallet (1)
 
@@ -131,8 +131,8 @@ Mirrors the README tool inventory; paths are exactly what each tool in `src/tool
 #### Capabilities (5)
 
 - `deva_capability_register` -> `POST /v1/agents/capabilities`
-- `deva_capability_search` -> `GET /v1/agents/capabilities`
-- `deva_capability_list` -> `GET /v1/agents/capabilities/mine`
+- `deva_capability_search` -> `GET /v1/agents/capabilities/search`
+- `deva_capability_list` -> `GET /v1/agents/capabilities`
 - `deva_capability_update` -> `PUT /v1/agents/capabilities/{capability_id}`
 - `deva_capability_delete` -> `DELETE /v1/agents/capabilities/{capability_id}`
 
@@ -161,7 +161,7 @@ Mirrors the README tool inventory; paths are exactly what each tool in `src/tool
 
 #### Servers (3)
 
-- `deva_server_provision` -> `POST /v1/agents/servers`
+- `deva_server_provision` -> `POST /v1/agents/servers/provision`
 - `deva_server_list` -> `GET /v1/agents/servers`
 - `deva_server_delete` -> `DELETE /v1/agents/servers/{server_id}`
 
