@@ -6,7 +6,7 @@ export function createAgentTools(): ToolDefinition[] {
     {
       name: "deva_agent_register",
       description:
-        "Register a new Deva agent and persist returned API key (auth tool; no resource charge). A secret client_id is generated and stored in the local config before registering, so calling again with the same name recovers a lost key while the agent is unclaimed. Refuses when a working API key is already configured (registering again revokes it) unless force is true.",
+        "Register a new Deva agent and persist returned API key (auth tool; no resource charge). Requires a caller-supplied secret client_id: generate it once (e.g. `openssl rand -hex 32`), keep it secret, and reuse it. Calling again with the same name and client_id while the agent is unclaimed recovers a lost key (and revokes the previous one). Refuses when a working API key is already configured unless force is true.",
       inputSchema: {
         type: "object",
         properties: {
@@ -18,19 +18,22 @@ export function createAgentTools(): ToolDefinition[] {
           client_id: {
             type: "string",
             description:
-              "Optional. Stable random secret id (32-128 chars, [A-Za-z0-9_-], e.g. a uuid4). Omit to let the server generate and store one. Treat as a secret: never share it."
+              "Required. Secret recovery id, 32-128 chars of [A-Za-z0-9_-]. Generate once with `openssl rand -hex 32`, store it somewhere safe, and reuse the same value to recover a lost key. Never share it."
           },
           force: {
             type: "boolean",
             description: "Register even if a working API key is already configured. This revokes that key."
           }
         },
-        required: ["name", "description"]
+        required: ["name", "description", "client_id"]
       },
       async execute(args, context) {
         validateRegisterInput(args);
-        const input: RegisterAgentInput = { name: args.name as string, description: args.description as string };
-        if (args.client_id !== undefined) input.client_id = args.client_id as string;
+        const input: RegisterAgentInput = {
+          name: args.name as string,
+          description: args.description as string,
+          client_id: args.client_id as string
+        };
         if (args.force !== undefined) input.force = args.force as boolean;
         return context.auth.registerAgent(input);
       }

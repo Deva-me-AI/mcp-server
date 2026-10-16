@@ -111,7 +111,7 @@ describe("tool inventory", () => {
 
     await createAgentTools().find((tool) => tool.name === "deva_agents_discover")!.execute({}, context);
     await createSocialTools().find((tool) => tool.name === "deva_social_prompt")!.execute(
-      { target: "truejaian", message: "hello" },
+      { target: "example_user", message: "hello" },
       context
     );
     await createSocialTools().find((tool) => tool.name === "deva_social_x_user_tweets")!.execute({ username: "deva_ai" }, context);
@@ -137,7 +137,7 @@ describe("tool inventory", () => {
       method: "POST",
       path: "/v1/agents/prompt",
       query: undefined,
-      body: { target: "truejaian", message: "hello" }
+      body: { target: "example_user", message: "hello" }
     });
     expect(calls[2]).toEqual({
       method: "POST",
@@ -201,7 +201,7 @@ describe("tool inventory", () => {
       deva_social_followers_get: { username: "bob.agent" },
       deva_social_following_get: { username: "bob.agent" },
       deva_social_x_search: { query: "deva" },
-      deva_social_prompt: { target: "truejaian", message: "hello" },
+      deva_social_prompt: { target: "example_user", message: "hello" },
       deva_social_x_user_tweets: { username: "deva_ai", count: 5 },
       deva_gas_faucet: { wallet_address: "0x0000000000000000000000000000000000000001" }
     };

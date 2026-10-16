@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buildDefaultToolPolicyConfig, normalizeToolPolicyConfig } from "./tool-policy.js";
@@ -10,13 +9,6 @@ export type LogLevel = "error" | "warn" | "info" | "debug";
 export interface AgentProfileConfig {
   name?: string;
   api_key?: string;
-  /**
-   * Registration recovery ids sent to `POST /v1/agents/register`, keyed by lowercased agent
-   * name. Secret: together with the agent name a client_id can mint a new key for an
-   * unclaimed agent. Stored here (0600) so a lost register response can be recovered by
-   * retrying with the same name.
-   */
-  client_ids?: Record<string, string>;
 }
 
 export interface DevaMcpConfigFile {
@@ -121,69 +113,31 @@ export async function loadConfig(): Promise<RuntimeConfig> {
 }
 
 /**
- * Writes the config atomically (temp file + rename) with mode 0600. The explicit chmod also
- * tightens files created earlier with looser permissions, since `mode` only applies on create.
+ * Writes the config with mode 0600. The explicit chmod also tightens a file created earlier
+ * with looser permissions, since `mode` only applies when the file is created.
  */
 export async function saveConfigFile(configPath: string, config: DevaMcpConfigFile): Promise<void> {
   await mkdir(path.dirname(configPath), { recursive: true, mode: 0o700 });
-  const tmpPath = `${configPath}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(tmpPath, JSON.stringify(config, null, 2), { mode: 0o600 });
-    await chmod(tmpPath, 0o600);
-    await rename(tmpPath, configPath);
-  } catch (error) {
-    await rm(tmpPath, { force: true });
-    throw error;
-  }
+  // Tighten an existing file before writing the key into it.
+  await chmod(configPath, 0o600).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+  });
+  await writeFile(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
   await chmod(configPath, 0o600);
 }
 
-/**
- * Applies `mutate` to a copy of the config file, persists it, and only then adopts it in
- * memory. A failed write throws and leaves the in-memory state untouched, so the next call
- * still sees the change as unsaved and retries the write instead of skipping it.
- */
-async function updateConfigFile(config: RuntimeConfig, mutate: (file: DevaMcpConfigFile) => void): Promise<void> {
+/** Persists the API key; the in-memory config is only updated once the write succeeded. */
+export async function saveApiKey(config: RuntimeConfig, apiKey: string, name?: string): Promise<void> {
   const next = structuredClone(config.configFile);
-  mutate(next);
+  next.profile = config.profile;
+  next.agents[config.profile] ??= {};
+  next.agents[config.profile].api_key = apiKey;
+  if (name) {
+    next.agents[config.profile].name = name;
+  }
+
   await saveConfigFile(config.configPath, next);
   config.configFile = next;
-}
-
-function profileOf(file: DevaMcpConfigFile, profile: string): AgentProfileConfig {
-  file.agents[profile] ??= {};
-  return file.agents[profile];
-}
-
-export async function saveApiKey(config: RuntimeConfig, apiKey: string, name?: string): Promise<void> {
-  await updateConfigFile(config, (file) => {
-    file.profile = config.profile;
-    const profile = profileOf(file, config.profile);
-    profile.api_key = apiKey;
-    if (name) {
-      profile.name = name;
-    }
-  });
-}
-
-/**
- * Returns the persisted register client_id for `agentName` in the active profile, generating
- * one if none exists (or adopting the caller-supplied one). Ids are keyed by agent name so
- * registering a second agent never reuses or overwrites another agent's recovery id. It is
- * written to disk BEFORE the register request so a crash or lost response can be recovered.
- */
-export async function ensureClientId(config: RuntimeConfig, agentName: string, provided?: string): Promise<string> {
-  const key = agentName.toLowerCase();
-  const stored = config.configFile.agents[config.profile]?.client_ids?.[key];
-  const clientId = provided ?? stored ?? randomUUID();
-  if (stored !== clientId) {
-    await updateConfigFile(config, (file) => {
-      file.profile = config.profile;
-      const profile = profileOf(file, config.profile);
-      profile.client_ids = { ...profile.client_ids, [key]: clientId };
-    });
-  }
-  return clientId;
 }
 
 export function redactApiKey(value: string | undefined): string {

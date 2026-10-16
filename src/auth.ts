@@ -1,4 +1,4 @@
-import { RuntimeConfig, ensureClientId, saveApiKey } from "./config.js";
+import { RuntimeConfig, saveApiKey } from "./config.js";
 import { DevaClient } from "./deva-client.js";
 import { DevaError } from "./errors.js";
 
@@ -8,14 +8,13 @@ export interface RegisterAgentInput {
   /** 10-500 chars. Required by `POST /v1/agents/register`. */
   description: string;
   /**
-   * Stable random caller-generated id (32-128 chars, `[A-Za-z0-9_-]`, e.g. a uuid4).
-   * Retrying register with the same name + client_id while unclaimed returns a fresh key.
-   * Secret recovery credential: never log, commit, or share it. When omitted, the server
-   * generates one and persists it in the config file (0600) before registering.
+   * Caller-generated secret recovery id (32-128 chars, `[A-Za-z0-9_-]`), e.g. from
+   * `openssl rand -hex 32`. Generate it once, keep it secret, and reuse it: calling register
+   * again with the same name + client_id while the agent is unclaimed returns a fresh key.
    */
-  client_id?: string;
+  client_id: string;
   /**
-   * Register even though a working API key is already stored. A successful register retry
+   * Register even though a working API key is already configured. A successful register retry
    * revokes the previous key, so this must be explicit.
    */
   force?: boolean;
@@ -36,8 +35,10 @@ export function validateRegisterInput(input: {
   if (typeof input.description !== "string" || input.description.trim().length < 10 || input.description.length > 500) {
     throw new DevaError({ message: "description is required and must be 10-500 characters." });
   }
-  if (input.client_id !== undefined && (typeof input.client_id !== "string" || !CLIENT_ID_PATTERN.test(input.client_id))) {
-    throw new DevaError({ message: "client_id must be 32-128 chars of [A-Za-z0-9_-] (e.g. a uuid4)." });
+  if (typeof input.client_id !== "string" || !CLIENT_ID_PATTERN.test(input.client_id)) {
+    throw new DevaError({
+      message: "client_id is required: 32-128 chars of [A-Za-z0-9_-]. Generate one once with `openssl rand -hex 32` and keep it secret."
+    });
   }
   if (input.force !== undefined && typeof input.force !== "boolean") {
     throw new DevaError({ message: "force must be a boolean." });
@@ -63,6 +64,10 @@ export interface RegisterAgentOutput {
 }
 
 export class AuthManager {
+  // Serializes register calls in this process so overlapping calls cannot revoke each
+  // other's keys or persist an older key over a newer one.
+  private registerQueue: Promise<unknown> = Promise.resolve();
+
   constructor(
     private readonly config: RuntimeConfig,
     private readonly client: DevaClient
@@ -83,19 +88,16 @@ export class AuthManager {
     return key;
   }
 
-  // Serializes register calls in this process: concurrent retries would each revoke the
-  // previous key, and an older response could otherwise be persisted after a newer one.
-  private registerQueue: Promise<unknown> = Promise.resolve();
-  // A registered key whose save to disk failed; persisted before any further register call.
-  private unsavedKey?: { apiKey: string; name: string };
-
   registerAgent(input: RegisterAgentInput): Promise<RegisterAgentOutput> {
     const run = this.registerQueue.then(() => this.registerAgentLocked(input));
     this.registerQueue = run.catch(() => undefined);
     return run;
   }
 
-  /** True when the configured key authenticates; false when the API rejects it (401/403). */
+  /**
+   * True unless the API rejects the configured key with 401. A 403 means the key
+   * authenticates but is not allowed this call, so it still counts as working.
+   */
   private async hasWorkingApiKey(): Promise<boolean> {
     if (!this.getApiKey()) {
       return false;
@@ -104,8 +106,11 @@ export class AuthManager {
       await this.client.request({ method: "GET", path: "/v1/agents/status" });
       return true;
     } catch (error) {
-      if (error instanceof DevaError && (error.status === 401 || error.status === 403)) {
+      if (error instanceof DevaError && error.status === 401) {
         return false;
+      }
+      if (error instanceof DevaError && error.status === 403) {
+        return true;
       }
       throw error;
     }
@@ -113,22 +118,17 @@ export class AuthManager {
 
   private async registerAgentLocked(input: RegisterAgentInput): Promise<RegisterAgentOutput> {
     validateRegisterInput(input);
-    if (this.unsavedKey) {
-      await this.persistKey(this.unsavedKey.apiKey, this.unsavedKey.name);
-    }
     if (!input.force && (await this.hasWorkingApiKey())) {
       throw new DevaError({
         message:
           "Already registered: the configured API key works. Registering again revokes it; pass force: true to rotate the key anyway."
       });
     }
-    // Always send a client_id, persisted before the request: if the response is lost, a
-    // retry with the same name reuses the stored id and recovers the unclaimed agent.
-    const clientId = await ensureClientId(this.config, input.name, input.client_id);
+
     const result = await this.client.request<RegisterAgentOutput>({
       method: "POST",
       path: "/v1/agents/register",
-      body: { name: input.name, description: input.description, client_id: clientId },
+      body: { name: input.name, description: input.description, client_id: input.client_id },
       requiresAuth: false
     });
 
@@ -138,26 +138,20 @@ export class AuthManager {
       throw new DevaError({ message: "Registration succeeded but no api_key returned." });
     }
 
-    // Adopt the key in memory first so it is usable even if persisting fails.
-    this.config.apiKey = apiKey;
-    await this.persistKey(apiKey, result.agent?.name ?? input.name);
-
-    return result;
-  }
-
-  /** Saves the key; on failure remembers it for the next call and surfaces the error. */
-  private async persistKey(apiKey: string, name: string): Promise<void> {
     try {
-      await saveApiKey(this.config, apiKey, name);
-      this.unsavedKey = undefined;
+      await saveApiKey(this.config, apiKey, result.agent?.name ?? input.name);
     } catch (error) {
-      this.unsavedKey = { apiKey, name };
+      // Never echo the key. The caller recovers it by re-running register with the same
+      // name + client_id once the config path is writable.
       throw new DevaError({
         code: "CONFIG_SAVE_FAILED",
-        message: `Registered, but saving the API key to ${this.config.configPath} failed (${
+        message: `Registered, but the API key could not be saved to ${this.config.configPath} (${
           error instanceof Error ? error.message : String(error)
-        }). The key is active for this session only and will be saved on the next deva_agent_register call; to keep it now, store it yourself: ${apiKey}`
+        }). Fix the config path, then re-run deva_agent_register with the same name and client_id to recover a new key.`
       });
     }
+    this.config.apiKey = apiKey;
+
+    return result;
   }
 }
