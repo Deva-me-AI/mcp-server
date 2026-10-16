@@ -9,6 +9,8 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   requiresAuth?: boolean;
   timeoutMs?: number;
+  /** Retries after timeouts/5xx/network errors. Set to 0 for non-idempotent, billed calls. */
+  maxRetries?: number;
 }
 
 export interface HttpClient {
@@ -120,6 +122,7 @@ export class DevaClient {
 
     let attempt = 0;
     let waitMs = 300;
+    const maxRetries = options.maxRetries ?? 3;
 
     while (true) {
       const controller = new AbortController();
@@ -193,7 +196,7 @@ export class DevaClient {
           paymentChallenge
         });
 
-        if (RETRYABLE.has(response.status) && attempt < 3) {
+        if (RETRYABLE.has(response.status) && attempt < maxRetries) {
           await sleep(waitMs);
           attempt += 1;
           waitMs *= 2;
@@ -204,7 +207,7 @@ export class DevaClient {
       } catch (error) {
         const isAbort = error instanceof Error && error.name === "AbortError";
 
-        if (isAbort && attempt < 3) {
+        if (isAbort && attempt < maxRetries) {
           await sleep(waitMs);
           attempt += 1;
           waitMs *= 2;
@@ -215,7 +218,7 @@ export class DevaClient {
           throw error;
         }
 
-        if (attempt < 3) {
+        if (attempt < maxRetries) {
           await sleep(waitMs);
           attempt += 1;
           waitMs *= 2;

@@ -20,7 +20,7 @@ const SUPPORTED_LIST = Object.keys(SUPPORTED_AUDIO_FORMATS).join(", ");
 function audioContentType(filename: string): string {
   const match = /\.([A-Za-z0-9]+)$/.exec(filename);
   const ext = match ? match[1].toLowerCase() : "";
-  const type = SUPPORTED_AUDIO_FORMATS[ext];
+  const type = Object.prototype.hasOwnProperty.call(SUPPORTED_AUDIO_FORMATS, ext) ? SUPPORTED_AUDIO_FORMATS[ext] : undefined;
   if (!type) {
     throw new Error(`filename must end with a supported audio extension; supported formats: ${SUPPORTED_LIST}`);
   }
@@ -32,7 +32,9 @@ function decodeAudioBase64(input: string): Uint8Array<ArrayBuffer> {
   if (input.length > MAX_AUDIO_BASE64_CHARS * 2) throw new Error("audio exceeds the 25MB limit");
   const normalized = input.replace(/\s+/g, "");
   if (normalized.length > MAX_AUDIO_BASE64_CHARS) throw new Error("audio exceeds the 25MB limit");
-  if (!/^[A-Za-z0-9+/_-]*={0,2}$/.test(normalized)) throw new Error("audio_base64 is not valid base64");
+  if (!/^[A-Za-z0-9+/_-]*={0,2}$/.test(normalized) || normalized.replace(/=+$/, "").length % 4 === 1) {
+    throw new Error("audio_base64 is not valid base64");
+  }
   const decoded = Buffer.from(normalized, "base64");
   if (decoded.byteLength > MAX_AUDIO_BYTES) throw new Error("audio exceeds the 25MB limit");
   const bytes = new Uint8Array(decoded.byteLength);
@@ -179,7 +181,8 @@ export function createAiTools(): ToolDefinition[] {
         form.append("file", new Blob([bytes], { type: contentType }), filename);
         if (typeof args.language === "string" && args.language) form.append("language", args.language);
 
-        return context.client.request({ method: "POST", path: "/v1/ai/transcribe", body: form });
+        // Billed, non-idempotent upload: no automatic retries, and a long timeout for large files.
+        return context.client.request({ method: "POST", path: "/v1/ai/transcribe", body: form, timeoutMs: 300_000, maxRetries: 0 });
       }
     }
   ];

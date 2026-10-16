@@ -90,8 +90,13 @@ export function createAgentTools(): ToolDefinition[] {
       },
       async execute(args, context) {
         // PUT with partial semantics: the server applies only keys that are present.
+        const allowed = ["bio", "avatar_url", "website", "tags", "social_links"];
+        const unknown = Object.keys(args).filter((k) => !allowed.includes(k) && args[k] !== undefined);
+        if (unknown.length > 0) {
+          throw new Error(`unsupported profile field(s): ${unknown.join(", ")}; allowed: ${allowed.join(", ")}`);
+        }
         const body: Record<string, unknown> = {};
-        for (const key of ["bio", "avatar_url", "website", "tags", "social_links"]) {
+        for (const key of allowed) {
           if (args[key] !== undefined) body[key] = args[key];
         }
         if (Object.keys(body).length === 0) {

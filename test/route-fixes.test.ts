@@ -46,6 +46,20 @@ afterEach(() => {
 });
 
 describe("route fixes", () => {
+  it("transcription rejects inherited-property extensions and truncated base64", async () => {
+    const tool = createAiTools().find((t) => t.name === "deva_ai_transcription")!;
+    const { context } = harness();
+    await expect(tool.execute({ audio_base64: "eHl6", filename: "x.constructor" }, context as never)).rejects.toThrow(/supported/);
+    await expect(tool.execute({ audio_base64: "eHl6A", filename: "x.mp3" }, context as never)).rejects.toThrow(/not valid base64/);
+  });
+
+  it("profile update rejects unknown fields instead of dropping them", async () => {
+    const tool = createAgentTools().find((t) => t.name === "deva_agent_me_update")!;
+    const { calls, context } = harness();
+    await expect(tool.execute({ bio: "hi", unknown: 1 }, context as never)).rejects.toThrow(/unsupported profile field/);
+    expect(calls).toHaveLength(0);
+  });
+
   it("deva_ai_llm_completion -> POST /v1/chat/completions", async () => {
     const call = await run(createAiTools(), "deva_ai_llm_completion", {
       model: "openai/gpt-4o-mini",
@@ -73,6 +87,9 @@ describe("route fixes", () => {
     expect(file.type).toBe("audio/mp4");
     expect(new Uint8Array(await file.arrayBuffer())).toEqual(audio);
     expect(form.get("language")).toBe("en");
+    // Billed upload: never auto-retried, long timeout.
+    expect((call as unknown as { maxRetries?: number }).maxRetries).toBe(0);
+    expect((call as unknown as { timeoutMs?: number }).timeoutMs).toBeGreaterThanOrEqual(120_000);
 
     const noLang = await run(createAiTools(), "deva_ai_transcription", { audio_base64: "eHl6", filename: "a.FLAC" });
     expect(((noLang.body as FormData).get("file") as File).type).toBe("audio/flac");
@@ -151,12 +168,12 @@ describe("route fixes", () => {
   });
 
   it("deva_agent_me_update -> PUT /v1/agents/profile with only schema fields", async () => {
-    const call = await run(createAgentTools(), "deva_agent_me_update", { bio: "hello", tags: ["a"], unknown: 1 });
+    const call = await run(createAgentTools(), "deva_agent_me_update", { bio: "hello", tags: ["a"] });
     expect(call).toEqual({ method: "PUT", path: "/v1/agents/profile", body: { bio: "hello", tags: ["a"] } });
 
     const { calls, context } = harness();
     const tool = createAgentTools().find((t) => t.name === "deva_agent_me_update")!;
-    await expect(tool.execute({ unknown: 1 }, context as never)).rejects.toThrow(/at least one of/);
+    await expect(tool.execute({}, context as never)).rejects.toThrow(/at least one of/);
     expect(calls).toHaveLength(0);
   });
 
