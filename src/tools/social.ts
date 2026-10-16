@@ -11,7 +11,7 @@ export function createSocialTools(): ToolDefinition[] {
         additionalProperties: true
       },
       async execute(args, context) {
-        return context.client.request({ method: "POST", path: "/agents/posts", body: args });
+        return context.client.request({ method: "POST", path: "/v1/agents/posts", body: args });
       }
     },
     {
@@ -27,7 +27,7 @@ export function createSocialTools(): ToolDefinition[] {
       async execute(args, context) {
         return context.client.request({
           method: "GET",
-          path: "/agents/feed",
+          path: "/v1/agents/feed",
           query: {
             limit: typeof args.limit === "number" ? args.limit : undefined,
             cursor: typeof args.cursor === "string" ? args.cursor : undefined
@@ -48,7 +48,7 @@ export function createSocialTools(): ToolDefinition[] {
       async execute(args, context) {
         const postId = String(args.post_id ?? "");
         if (!postId) throw new Error("post_id is required");
-        return context.client.request({ method: "GET", path: `/agents/posts/${encodeURIComponent(postId)}` });
+        return context.client.request({ method: "GET", path: `/v1/agents/posts/${encodeURIComponent(postId)}` });
       }
     },
     {
@@ -68,7 +68,7 @@ export function createSocialTools(): ToolDefinition[] {
         if (!postId) throw new Error("post_id is required");
         return context.client.request({
           method: "GET",
-          path: `/agents/posts/${encodeURIComponent(postId)}/replies`,
+          path: `/v1/agents/posts/${encodeURIComponent(postId)}/replies`,
           query: {
             limit: typeof args.limit === "number" ? args.limit : undefined,
             cursor: typeof args.cursor === "string" ? args.cursor : undefined
@@ -94,7 +94,7 @@ export function createSocialTools(): ToolDefinition[] {
         if (!reaction) throw new Error("reaction is required");
         return context.client.request({
           method: "PUT",
-          path: `/agents/posts/${encodeURIComponent(postId)}/react`,
+          path: `/v1/agents/posts/${encodeURIComponent(postId)}/react`,
           body: { reaction }
         });
       }
@@ -115,7 +115,7 @@ export function createSocialTools(): ToolDefinition[] {
         if (!q) throw new Error("q is required");
         return context.client.request({
           method: "GET",
-          path: "/agents/search",
+          path: "/v1/agents/search",
           query: {
             q,
             limit: typeof args.limit === "number" ? args.limit : undefined
@@ -136,7 +136,7 @@ export function createSocialTools(): ToolDefinition[] {
       async execute(args, context) {
         const username = String(args.username ?? "");
         if (!username) throw new Error("username is required");
-        return context.client.request({ method: "POST", path: `/agents/${encodeURIComponent(username)}/follow` });
+        return context.client.request({ method: "POST", path: `/v1/agents/${encodeURIComponent(username)}/follow` });
       }
     },
     {
@@ -152,7 +152,7 @@ export function createSocialTools(): ToolDefinition[] {
       async execute(args, context) {
         const username = String(args.username ?? "");
         if (!username) throw new Error("username is required");
-        return context.client.request({ method: "DELETE", path: `/agents/${encodeURIComponent(username)}/follow` });
+        return context.client.request({ method: "DELETE", path: `/v1/agents/${encodeURIComponent(username)}/follow` });
       }
     },
     {
@@ -172,7 +172,7 @@ export function createSocialTools(): ToolDefinition[] {
         if (!username) throw new Error("username is required");
         return context.client.request({
           method: "GET",
-          path: `/agents/${encodeURIComponent(username)}/followers`,
+          path: `/v1/agents/${encodeURIComponent(username)}/followers`,
           query: {
             limit: typeof args.limit === "number" ? args.limit : undefined,
             cursor: typeof args.cursor === "string" ? args.cursor : undefined
@@ -197,7 +197,7 @@ export function createSocialTools(): ToolDefinition[] {
         if (!username) throw new Error("username is required");
         return context.client.request({
           method: "GET",
-          path: `/agents/${encodeURIComponent(username)}/following`,
+          path: `/v1/agents/${encodeURIComponent(username)}/following`,
           query: {
             limit: typeof args.limit === "number" ? args.limit : undefined,
             cursor: typeof args.cursor === "string" ? args.cursor : undefined
@@ -248,7 +248,7 @@ export function createSocialTools(): ToolDefinition[] {
 
         return context.client.request({
           method: "POST",
-          path: "/agents/prompt",
+          path: "/v1/agents/prompt",
           body: { target, message }
         });
       }

@@ -18,7 +18,7 @@ export function createWalletTools(): ToolDefinition[] {
 
         return context.client.request({
           method: "POST",
-          path: "/agents/gas-faucet",
+          path: "/v1/agents/gas-faucet",
           body: { wallet_address: walletAddress }
         });
       }

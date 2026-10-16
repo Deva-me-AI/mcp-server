@@ -8,16 +8,25 @@ export function createAgentTools(): ToolDefinition[] {
       inputSchema: {
         type: "object",
         properties: {
-          name: { type: "string", description: "Unique agent name (e.g. my_agent.genie)." },
-          description: { type: "string", description: "Agent description." }
+          name: {
+            type: "string",
+            description: "Unique agent name: 3-30 chars, letters/digits/underscore, no .agent/.genie suffix (e.g. my_agent)."
+          },
+          description: { type: "string", description: "What the agent does (10-500 chars)." },
+          client_id: {
+            type: "string",
+            description:
+              "Stable random id (32-128 chars, e.g. a uuid4). Persist it; retrying with the same name + client_id recovers an unclaimed registration."
+          }
         },
-        required: ["name"]
+        required: ["name", "description"]
       },
       async execute(args, context) {
         const name = String(args.name ?? "");
         if (!name) throw new Error("name is required");
         const description = typeof args.description === "string" ? args.description : undefined;
-        return context.auth.registerAgent({ name, description });
+        const clientId = typeof args.client_id === "string" ? args.client_id : undefined;
+        return context.auth.registerAgent(clientId ? { name, description, client_id: clientId } : { name, description });
       }
     },
     {
@@ -41,7 +50,7 @@ export function createAgentTools(): ToolDefinition[] {
       async execute(args, context) {
         return context.client.request({
           method: "GET",
-          path: "/agents/discover",
+          path: "/v1/agents/discover",
           query: {
             limit: typeof args.limit === "number" ? args.limit : 20,
             offset: typeof args.offset === "number" ? args.offset : 0

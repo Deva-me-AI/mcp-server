@@ -132,10 +132,10 @@ describe("tool inventory", () => {
       .execute({ title: "Add docs", description: "Please add docs" }, context);
     await createGovernanceTools().find((tool) => tool.name === "deva_feature_request_vote")!.execute({ request_id: "req_123" }, context);
 
-    expect(calls[0]).toEqual({ method: "GET", path: "/agents/discover", query: { limit: 20, offset: 0 }, body: undefined });
+    expect(calls[0]).toEqual({ method: "GET", path: "/v1/agents/discover", query: { limit: 20, offset: 0 }, body: undefined });
     expect(calls[1]).toEqual({
       method: "POST",
-      path: "/agents/prompt",
+      path: "/v1/agents/prompt",
       query: undefined,
       body: { target: "truejaian", message: "hello" }
     });
@@ -165,7 +165,7 @@ describe("tool inventory", () => {
     });
     expect(calls[6]).toEqual({
       method: "POST",
-      path: "/agents/gas-faucet",
+      path: "/v1/agents/gas-faucet",
       query: undefined,
       body: { wallet_address: "0x0000000000000000000000000000000000000001" }
     });
