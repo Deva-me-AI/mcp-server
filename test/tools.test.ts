@@ -23,8 +23,8 @@ describe("tool inventory", () => {
       ...createGovernanceTools()
     ];
 
-    expect(all).toHaveLength(49);
-    expect(new Set(all.map((t) => t.name)).size).toBe(49);
+    expect(all).toHaveLength(51);
+    expect(new Set(all.map((t) => t.name)).size).toBe(51);
   });
 
   it("includes required balance and pricing tools", () => {
@@ -34,14 +34,16 @@ describe("tool inventory", () => {
     expect(names.has("deva_balance_get")).toBe(true);
     expect(names.has("deva_cost_estimate")).toBe(true);
     expect(names.has("deva_resources_catalog")).toBe(true);
+    expect(names.has("deva_resource_inspect")).toBe(true);
+    expect(names.has("deva_resource_run")).toBe(true);
   });
 
   it("maps balance tools to expected resource endpoints", async () => {
-    const calls: Array<{ method: string; path: string }> = [];
+    const calls: Array<{ method: string; path: string; body?: unknown }> = [];
     const context = {
       client: {
-        request: async (options: { method: string; path: string }) => {
-          calls.push({ method: options.method, path: options.path });
+        request: async (options: { method: string; path: string; body?: unknown }) => {
+          calls.push({ method: options.method, path: options.path, body: options.body });
           return {};
         }
       },
@@ -50,12 +52,28 @@ describe("tool inventory", () => {
 
     const tools = createBalanceTools();
     await tools.find((tool) => tool.name === "deva_balance_get")!.execute({}, context);
-    await tools.find((tool) => tool.name === "deva_cost_estimate")!.execute({}, context);
+    await tools
+      .find((tool) => tool.name === "deva_cost_estimate")!
+      .execute({ resource_id: "web_search", params: { query: "deva" } }, context);
     await tools.find((tool) => tool.name === "deva_resources_catalog")!.execute({}, context);
+    await tools.find((tool) => tool.name === "deva_resource_inspect")!.execute({ resource_id: "web_search" }, context);
+    await tools
+      .find((tool) => tool.name === "deva_resource_run")!
+      .execute({ resource_id: "web_search", params: { query: "deva", count: 1 } }, context);
 
-    expect(calls[0]).toEqual({ method: "GET", path: "/v1/agents/karma/balance" });
-    expect(calls[1]).toEqual({ method: "POST", path: "/v1/agents/resources/estimate" });
-    expect(calls[2]).toEqual({ method: "GET", path: "/v1/agents/resources/catalog" });
+    expect(calls[0]).toEqual({ method: "GET", path: "/v1/agents/karma/balance", body: undefined });
+    expect(calls[1]).toEqual({
+      method: "POST",
+      path: "/v1/agents/resources/estimate",
+      body: { resource_id: "web_search", params: { query: "deva" } }
+    });
+    expect(calls[2]).toEqual({ method: "GET", path: "/v1/agents/resources/catalog", body: undefined });
+    expect(calls[3]).toEqual({ method: "GET", path: "/v1/agents/resources/catalog/web_search", body: undefined });
+    expect(calls[4]).toEqual({
+      method: "POST",
+      path: "/v1/agents/resources/web_search/run",
+      body: { query: "deva", count: 1 }
+    });
   });
 
   it("uses updated pricing in paid tool descriptions", () => {
