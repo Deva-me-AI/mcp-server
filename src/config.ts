@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +10,12 @@ export type LogLevel = "error" | "warn" | "info" | "debug";
 export interface AgentProfileConfig {
   name?: string;
   api_key?: string;
+  /**
+   * Registration recovery id sent to `POST /v1/agents/register`. Secret: together with the
+   * agent name it can mint a new key for an unclaimed agent. Stored here (0600) so a lost
+   * register response can be recovered by retrying with the same name + client_id.
+   */
+  client_id?: string;
 }
 
 export interface DevaMcpConfigFile {
@@ -129,6 +136,25 @@ export async function saveApiKey(config: RuntimeConfig, apiKey: string, name?: s
   }
 
   await saveConfigFile(config.configPath, config.configFile);
+}
+
+/**
+ * Returns the persisted register client_id for the active profile, generating and saving
+ * one first if none exists (or saving the caller-supplied one). It is written to disk BEFORE
+ * the register request so a crash or lost response can be recovered on retry.
+ */
+export async function ensureClientId(config: RuntimeConfig, provided?: string): Promise<string> {
+  if (!config.configFile.agents[config.profile]) {
+    config.configFile.agents[config.profile] = {};
+  }
+  const profile = config.configFile.agents[config.profile];
+  const clientId = provided ?? profile.client_id ?? randomUUID();
+  if (profile.client_id !== clientId) {
+    profile.client_id = clientId;
+    config.configFile.profile = config.profile;
+    await saveConfigFile(config.configPath, config.configFile);
+  }
+  return clientId;
 }
 
 export function redactApiKey(value: string | undefined): string {

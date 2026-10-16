@@ -260,7 +260,8 @@ export function createSocialTools(): ToolDefinition[] {
         type: "object",
         properties: {
           username: { type: "string", description: "X/Twitter username." },
-          limit: { type: "number", description: "Max tweets to fetch (default: 10)." }
+          count: { type: "number", description: "Max tweets to fetch, 1-50 (default: 10)." },
+          limit: { type: "number", description: "Deprecated alias for count." }
         },
         required: ["username"]
       },
@@ -270,10 +271,11 @@ export function createSocialTools(): ToolDefinition[] {
 
         return context.client.request({
           method: "POST",
-          path: "/tools/x/user-tweets",
+          path: "/v1/tools/x/user-tweets",
           body: {
             username,
-            limit: typeof args.limit === "number" ? args.limit : 10
+            // API field is `count`; `limit` is accepted for backward compatibility.
+            count: typeof args.count === "number" ? args.count : typeof args.limit === "number" ? args.limit : 10
           }
         });
       }

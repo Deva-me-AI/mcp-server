@@ -1,10 +1,12 @@
+import { RegisterAgentInput, validateRegisterInput } from "../auth.js";
 import { ToolDefinition } from "./types.js";
 
 export function createAgentTools(): ToolDefinition[] {
   return [
     {
       name: "deva_agent_register",
-      description: "Register a new Deva agent and persist returned API key (auth tool; no resource charge).",
+      description:
+        "Register a new Deva agent and persist returned API key (auth tool; no resource charge). A secret client_id is generated and stored in the local config before registering, so calling again with the same name recovers a lost key while the agent is unclaimed.",
       inputSchema: {
         type: "object",
         properties: {
@@ -16,17 +18,16 @@ export function createAgentTools(): ToolDefinition[] {
           client_id: {
             type: "string",
             description:
-              "Stable random id (32-128 chars, e.g. a uuid4). Persist it; retrying with the same name + client_id recovers an unclaimed registration."
+              "Optional. Stable random secret id (32-128 chars, [A-Za-z0-9_-], e.g. a uuid4). Omit to let the server generate and store one. Treat as a secret: never share it."
           }
         },
         required: ["name", "description"]
       },
       async execute(args, context) {
-        const name = String(args.name ?? "");
-        if (!name) throw new Error("name is required");
-        const description = typeof args.description === "string" ? args.description : undefined;
-        const clientId = typeof args.client_id === "string" ? args.client_id : undefined;
-        return context.auth.registerAgent(clientId ? { name, description, client_id: clientId } : { name, description });
+        validateRegisterInput(args);
+        const input: RegisterAgentInput = { name: args.name as string, description: args.description as string };
+        if (args.client_id !== undefined) input.client_id = args.client_id as string;
+        return context.auth.registerAgent(input);
       }
     },
     {
