@@ -8,9 +8,6 @@ import { createMessagingTools } from "../src/tools/messaging.js";
 import { createServerTools } from "../src/tools/servers.js";
 import type { ToolDefinition } from "../src/tools/types.js";
 
-const dnsLookup = vi.hoisted(() => vi.fn(async (_host: string, _opts?: unknown) => [{ address: "93.184.215.14", family: 4 }]));
-vi.mock("node:dns/promises", () => ({ lookup: dnsLookup }));
-
 // Each assertion mirrors the live API route (method + path + request schema).
 // The previous paths all returned 404 on api.deva.me.
 
@@ -62,92 +59,74 @@ describe("route fixes", () => {
 
   it("deva_ai_transcription -> POST /v1/ai/transcribe as multipart file + language", async () => {
     const audio = new Uint8Array([1, 2, 3, 4]);
-    const fetchMock = vi.fn(async () => new Response(audio, { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-
     const call = await run(createAiTools(), "deva_ai_transcription", {
-      audio_url: "https://example.com/clips/talk.m4a",
+      audio_base64: Buffer.from(audio).toString("base64"),
+      filename: "talk.m4a",
       language: "en"
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(call.method).toBe("POST");
     expect(call.path).toBe("/v1/ai/transcribe");
-    expect(call.body).toBeInstanceOf(FormData);
     const form = call.body as FormData;
+    expect(form).toBeInstanceOf(FormData);
     const file = form.get("file") as File;
-    expect(file).toBeInstanceOf(Blob);
     expect(file.name).toBe("talk.m4a");
+    expect(file.type).toBe("audio/mp4");
     expect(new Uint8Array(await file.arrayBuffer())).toEqual(audio);
     expect(form.get("language")).toBe("en");
+
+    const noLang = await run(createAiTools(), "deva_ai_transcription", { audio_base64: "eHl6", filename: "a.FLAC" });
+    expect(((noLang.body as FormData).get("file") as File).type).toBe("audio/flac");
+    expect((noLang.body as FormData).get("language")).toBeNull();
   });
 
-  it("deva_ai_transcription accepts base64 audio and rejects missing input", async () => {
-    const call = await run(createAiTools(), "deva_ai_transcription", { audio_base64: Buffer.from("xyz").toString("base64") });
-    const file = (call.body as FormData).get("file") as File;
-    expect(file.name).toBe("audio.mp3");
-    expect((call.body as FormData).get("language")).toBeNull();
-
-    const tool = createAiTools().find((t) => t.name === "deva_ai_transcription")!;
-    await expect(tool.execute({}, harness().context as never)).rejects.toThrow(/audio_url or audio_base64/);
-    await expect(tool.execute({ audio_url: "file:///etc/passwd" }, harness().context as never)).rejects.toThrow(/http/);
-  });
-
-  it("deva_ai_transcription audio_url download rejects private hosts, redirects and oversize bodies", async () => {
-    const tool = createAiTools().find((t) => t.name === "deva_ai_transcription")!;
-    const ctx = harness().context as never;
-    const fetchMock = vi.fn(async () => new Response(new Uint8Array([1]), { status: 200 }));
+  it("deva_ai_transcription rejects audio_url without any network call", async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-
-    // Private / loopback / link-local / mapped addresses, by literal and via DNS.
-    for (const url of [
-      "http://127.0.0.1/a.mp3",
-      "http://169.254.169.254/latest/meta-data",
-      "http://[::1]/a.mp3",
-      "http://[::ffff:10.0.0.1]/a.mp3",
-      "http://[fd00::1]/a.mp3"
+    const { calls, context } = harness();
+    const tool = createAiTools().find((t) => t.name === "deva_ai_transcription")!;
+    expect(Object.keys((tool.inputSchema as { properties: object }).properties)).not.toContain("audio_url");
+    for (const args of [
+      { audio_url: "https://example.com/a.mp3" },
+      { audio_url: "http://169.254.169.254/latest/meta-data", audio_base64: "eHl6", filename: "a.mp3" }
     ]) {
-      await expect(tool.execute({ audio_url: url }, ctx)).rejects.toThrow(/public host/);
+      await expect(tool.execute(args, context as never)).rejects.toThrow(
+        "audio_url is not supported; pass audio_base64 (and filename with an extension)"
+      );
     }
-    dnsLookup.mockResolvedValueOnce([
-      { address: "93.184.215.14", family: 4 },
-      { address: "192.168.1.5", family: 4 }
-    ]);
-    await expect(tool.execute({ audio_url: "https://internal.example.com/a.mp3" }, ctx)).rejects.toThrow(/public host/);
     expect(fetchMock).not.toHaveBeenCalled();
-
-    // Redirects are refused (fetch is called with redirect: manual).
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: "http://127.0.0.1/" } }));
-    await expect(tool.execute({ audio_url: "https://example.com/a.mp3" }, ctx)).rejects.toThrow(/redirects are not allowed/);
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
-
-    // Oversize via Content-Length and via streamed bytes without a declared length.
-    fetchMock.mockResolvedValueOnce(
-      new Response(new Uint8Array([1]), { status: 200, headers: { "content-length": String(26 * 1024 * 1024) } })
-    );
-    await expect(tool.execute({ audio_url: "https://example.com/a.mp3" }, ctx)).rejects.toThrow(/25MB/);
-    const chunk = new Uint8Array(1024 * 1024);
-    let sent = 0;
-    const stream = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        if (sent++ < 30) controller.enqueue(chunk);
-        else controller.close();
-      }
-    });
-    fetchMock.mockResolvedValueOnce(new Response(stream, { status: 200 }));
-    await expect(tool.execute({ audio_url: "https://example.com/a.mp3" }, ctx)).rejects.toThrow(/25MB/);
+    expect(calls).toHaveLength(0);
   });
 
-  it("deva_ai_transcription derives the upload extension from Content-Type, else URL, else rejects", async () => {
-    const fetchMock = vi.fn(async () => new Response(new Uint8Array([1]), { status: 200, headers: { "content-type": "audio/x-wav" } }));
-    vi.stubGlobal("fetch", fetchMock);
-    const call = await run(createAiTools(), "deva_ai_transcription", { audio_url: "https://example.com/stream/clip" });
-    expect(((call.body as FormData).get("file") as File).name).toBe("clip.wav");
-
-    fetchMock.mockResolvedValueOnce(new Response(new Uint8Array([1]), { status: 200, headers: { "content-type": "application/octet-stream" } }));
+  it("deva_ai_transcription requires audio_base64 and a supported filename extension", async () => {
+    const { calls, context } = harness();
     const tool = createAiTools().find((t) => t.name === "deva_ai_transcription")!;
-    await expect(tool.execute({ audio_url: "https://example.com/download?id=1" }, harness().context as never)).rejects.toThrow(
-      /supported formats: mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg, flac/
+    await expect(tool.execute({}, context as never)).rejects.toThrow(/audio_base64 is required/);
+    await expect(tool.execute({ audio_base64: "eHl6" }, context as never)).rejects.toThrow(/filename is required/);
+    for (const filename of ["clip", "clip.txt", "clip.mp3.exe", "mp3"]) {
+      await expect(tool.execute({ audio_base64: "eHl6", filename }, context as never)).rejects.toThrow(
+        /supported formats: mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg, flac/
+      );
+    }
+    await expect(tool.execute({ audio_base64: "not base64!", filename: "a.mp3" }, context as never)).rejects.toThrow(
+      /not valid base64/
     );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("deva_ai_transcription rejects audio over 25MB before any request", async () => {
+    const { calls, context } = harness();
+    const tool = createAiTools().find((t) => t.name === "deva_ai_transcription")!;
+    // Base64 length bound trips before decoding.
+    const tooLong = "A".repeat(Math.ceil((25 * 1024 * 1024) / 3) * 4 + 4);
+    await expect(tool.execute({ audio_base64: tooLong, filename: "a.wav" }, context as never)).rejects.toThrow(/25MB/);
+    // Decoded byte bound: 25MB + 1 byte stays within the base64 length bound (same quad count) but is rejected after decoding.
+    const over = Buffer.alloc(25 * 1024 * 1024 + 1).toString("base64");
+    await expect(tool.execute({ audio_base64: over, filename: "a.wav" }, context as never)).rejects.toThrow(/25MB/);
+    expect(calls).toHaveLength(0);
+
+    const exact = Buffer.alloc(25 * 1024 * 1024).toString("base64");
+    await tool.execute({ audio_base64: exact, filename: "a.wav" }, context as never);
+    expect(calls).toHaveLength(1);
   });
 
   it("deva_comms_email_send -> POST /v1/comms/email/send with body_text/body_html", async () => {

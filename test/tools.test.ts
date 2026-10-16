@@ -120,7 +120,7 @@ describe("tool inventory", () => {
       .execute({ model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "hello" }] }, context);
     await createAiTools()
       .find((tool) => tool.name === "deva_ai_transcription")!
-      .execute({ audio_base64: Buffer.from("abc").toString("base64") }, context);
+      .execute({ audio_base64: Buffer.from("abc").toString("base64"), filename: "clip.mp3" }, context);
     await createCommsTools()
       .find((tool) => tool.name === "deva_comms_email_send")!
       .execute({ to: ["hello@example.com"], subject: "Test", body: "Hello" }, context);

@@ -215,7 +215,7 @@ Generated from `src/tools/*.ts`; paths are exactly what each tool calls.
 - `deva_ai_vision_analyze` -> `POST /v1/agents/resources/vision/analyze`
 - `deva_ai_web_search` -> `POST /v1/agents/resources/search`
 - `deva_ai_llm_completion` -> `POST /v1/chat/completions`
-- `deva_ai_transcription` -> `POST /v1/ai/transcribe` (multipart)
+- `deva_ai_transcription` -> `POST /v1/ai/transcribe` (multipart `file` + `language`; input is `audio_base64` + `filename` with a supported extension, max 25MB; `audio_url` is not accepted)
 
 ### Storage (8)
 
