@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -91,7 +91,7 @@ describe("AuthManager.registerAgent", () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       bodies.push(JSON.parse(String(init?.body)));
       if (bodies.length === 1) {
-        savedBeforeFirstRequest = JSON.parse(await readFile(config.configPath, "utf8")).agents.default.client_id;
+        savedBeforeFirstRequest = JSON.parse(await readFile(config.configPath, "utf8")).agents.default.client_ids.smoke_test;
       }
       const reply = replies.shift()!;
       // Response lost after the server registered (non-retryable, surfaces to the caller).
@@ -115,7 +115,7 @@ describe("AuthManager.registerAgent", () => {
     expect(config.apiKey).toBe("deva_recovered_key");
     const saved = JSON.parse(await readFile(config.configPath, "utf8"));
     expect(saved.agents.default.api_key).toBe("deva_recovered_key");
-    expect(saved.agents.default.client_id).toBe(clientId);
+    expect(saved.agents.default.client_ids.smoke_test).toBe(clientId);
   });
 
   it("rejects missing/short description and malformed client_id without calling the API", async () => {
@@ -128,5 +128,136 @@ describe("AuthManager.registerAgent", () => {
       auth.registerAgent({ name: "smoke_test", description: "a ten-plus char description", client_id: "too-short" })
     ).rejects.toThrow(/client_id/);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses to re-register while the stored key works, unless force is true", async () => {
+    const config = await makeConfig();
+    config.apiKey = "deva_existing_key";
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      if (String(input).endsWith("/v1/agents/status")) return new Response("{}", { status: 200 });
+      return new Response(JSON.stringify(registerResponse), { status: 200 });
+    });
+    const auth = new AuthManager(config, new DevaClient(config, () => config.apiKey, { fetch: fetchMock as never }));
+    const input = { name: "smoke_test", description: "a ten-plus char description" };
+
+    await expect(auth.registerAgent(input)).rejects.toThrow(/Already registered.*force: true/);
+    expect(calls.some((u) => u.endsWith("/v1/agents/register"))).toBe(false);
+    expect(config.apiKey).toBe("deva_existing_key");
+
+    await auth.registerAgent({ ...input, force: true });
+    expect(calls.filter((u) => u.endsWith("/v1/agents/register"))).toHaveLength(1);
+    expect(config.apiKey).toBe("deva_nested_key");
+  });
+
+  it("registers when the stored key is rejected (401)", async () => {
+    const config = await makeConfig();
+    config.apiKey = "deva_revoked_key";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/v1/agents/status")
+        ? new Response(JSON.stringify({ message: "invalid key" }), { status: 401 })
+        : new Response(JSON.stringify(registerResponse), { status: 200 })
+    );
+    const auth = new AuthManager(config, new DevaClient(config, () => config.apiKey, { fetch: fetchMock as never }));
+    await auth.registerAgent({ name: "smoke_test", description: "a ten-plus char description" });
+    expect(config.apiKey).toBe("deva_nested_key");
+  });
+
+  it("surfaces a failed key save and persists the key on the next call", async () => {
+    const config = await makeConfig();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/v1/agents/status")
+        ? new Response("{}", { status: 200 })
+        : new Response(JSON.stringify(registerResponse), { status: 201 })
+    );
+    const auth = new AuthManager(config, new DevaClient(config, () => config.apiKey, { fetch: fetchMock as never }));
+    const input = { name: "smoke_test", description: "a ten-plus char description" };
+
+    // The client_id is saved before the request; then point the config under a regular file
+    // (mkdir fails with ENOTDIR) so the key save after the response fails.
+    const realPath = config.configPath;
+    fetchMock.mockImplementationOnce(async () => {
+      config.configPath = path.join(realPath, "not-a-dir", "config.json");
+      return new Response(JSON.stringify(registerResponse), { status: 201 });
+    });
+    await expect(auth.registerAgent(input)).rejects.toThrow(/saving the API key .* failed/);
+    expect(config.apiKey).toBe("deva_nested_key");
+    expect(config.configFile.agents.default.api_key).toBeUndefined();
+
+    // Disk is writable again: the next call persists the pending key before anything else,
+    // then refuses to rotate it because it works.
+    config.configPath = realPath;
+    await expect(auth.registerAgent(input)).rejects.toThrow(/Already registered/);
+    const saved = JSON.parse(await readFile(realPath, "utf8"));
+    expect(saved.agents.default.api_key).toBe("deva_nested_key");
+  });
+
+  it("serializes concurrent register calls and persists only the latest key", async () => {
+    const config = await makeConfig();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let n = 0;
+    const fetchMock = vi.fn(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      const key = `deva_key_${++n}`;
+      // The first response is slowest: without a lock it would land (and be saved) last.
+      await new Promise((r) => setTimeout(r, n === 1 ? 30 : 1));
+      inFlight -= 1;
+      return new Response(JSON.stringify({ ...registerResponse, agent: { ...registerResponse.agent, api_key: key } }), {
+        status: 200
+      });
+    });
+    const auth = new AuthManager(config, new DevaClient(config, () => undefined, { fetch: fetchMock as never }));
+    const input = { name: "smoke_test", description: "a ten-plus char description", force: true };
+
+    const results = await Promise.all([auth.registerAgent(input), auth.registerAgent(input), auth.registerAgent(input)]);
+    expect(maxInFlight).toBe(1);
+    expect(results.map((r) => r.agent.api_key)).toEqual(["deva_key_1", "deva_key_2", "deva_key_3"]);
+    const saved = JSON.parse(await readFile(config.configPath, "utf8"));
+    expect(saved.agents.default.api_key).toBe("deva_key_3");
+    expect(config.apiKey).toBe("deva_key_3");
+  });
+
+  it("keys client_ids by agent name and never clobbers another agent's id", async () => {
+    const config = await makeConfig();
+    const bodies: Array<Record<string, string>> = [];
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify(registerResponse), { status: 201 });
+    });
+    const auth = new AuthManager(config, new DevaClient(config, () => undefined, { fetch: fetchMock as never }));
+    const supplied = "b".repeat(40);
+
+    await auth.registerAgent({ name: "agent_one", description: "a ten-plus char description", force: true });
+    await auth.registerAgent({ name: "agent_two", description: "a ten-plus char description", force: true });
+    await auth.registerAgent({
+      name: "agent_three",
+      description: "a ten-plus char description",
+      client_id: supplied,
+      force: true
+    });
+    await auth.registerAgent({ name: "agent_one", description: "a ten-plus char description", force: true });
+
+    expect(bodies[0].client_id).not.toBe(bodies[1].client_id);
+    expect(bodies[2].client_id).toBe(supplied);
+    expect(bodies[3].client_id).toBe(bodies[0].client_id);
+    const saved = JSON.parse(await readFile(config.configPath, "utf8"));
+    expect(saved.agents.default.client_ids).toEqual({
+      agent_one: bodies[0].client_id,
+      agent_two: bodies[1].client_id,
+      agent_three: supplied
+    });
+  });
+
+  it("writes the config with mode 0600 even if the file already existed with looser perms", async () => {
+    const config = await makeConfig();
+    await writeFile(config.configPath, "{}", { mode: 0o644 });
+    await chmod(config.configPath, 0o644);
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(registerResponse), { status: 201 }));
+    const auth = new AuthManager(config, new DevaClient(config, () => undefined, { fetch: fetchMock as never }));
+    await auth.registerAgent({ name: "smoke_test", description: "a ten-plus char description" });
+    expect((await stat(config.configPath)).mode & 0o777).toBe(0o600);
   });
 });

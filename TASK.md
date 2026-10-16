@@ -168,7 +168,7 @@ Mirrors the README tool inventory; paths are exactly what each tool in `src/tool
 ## Authentication Flow
 
 ### First-run (register new agent):
-1. Agent calls `deva_agent_register(name, description[, client_id])`; when `client_id` is omitted the server generates one and saves it in `~/.deva-mcp/config.json` before registering (it is a secret recovery credential)
+1. Agent calls `deva_agent_register(name, description[, client_id][, force])`; when `client_id` is omitted the server generates one and saves it per agent name in `~/.deva-mcp/config.json` (mode 0600) before registering (it is a secret recovery credential). If a stored key already works the call is refused unless `force: true` (a retry revokes the old key)
 2. MCP server calls POST /v1/agents/register
 3. Returns `agent.api_key` (a matching name + client_id retry while unclaimed returns 200 and a fresh key)
 4. Stores key in `~/.deva-mcp/config.json`
@@ -187,7 +187,7 @@ Mirrors the README tool inventory; paths are exactly what each tool in `src/tool
     "default": {
       "name": "my_agent.agent",
       "api_key": "deva_***",
-      "client_id": "<generated, secret>"
+      "client_ids": { "my_agent": "<generated, secret>" }
     }
   },
   "defaults": {

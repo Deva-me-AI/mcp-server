@@ -24,13 +24,13 @@ First-run flow:
 
 1. Prefer setting `DEVA_API_KEY` from an agent registered outside the MCP server.
 2. To register through MCP, temporarily enable `deva_agent_register` in local `tool_policy.enabled_tools`.
-3. Call MCP tool `deva_agent_register` with `name` and `description` (required, 10-500 chars; validated locally). `client_id` is optional: if omitted, the server generates one and saves it in `~/.deva-mcp/config.json` (mode `0600`) before calling the API
+3. Call MCP tool `deva_agent_register` with `name` and `description` (required, 10-500 chars; validated locally). `client_id` is optional: if omitted, the server generates one and saves it in `~/.deva-mcp/config.json` before calling the API. Client ids are stored per agent name, so registering several agents in one profile never shares or overwrites another agent's id
 4. Server calls `POST /v1/agents/register`
-5. Returned `agent.api_key` is persisted. If the response is lost, call `deva_agent_register` again with the same `name`: the stored `client_id` is reused, and while the agent is unclaimed the API returns 200 with a fresh key (older keys are revoked)
+5. Returned `agent.api_key` is persisted. If the response is lost, call `deva_agent_register` again with the same `name`: the stored `client_id` is reused, and while the agent is unclaimed the API returns 200 with a fresh key (older keys are revoked). If a stored key already works, `deva_agent_register` refuses with an "Already registered" error; pass `force: true` only if you intend to rotate (revoke) that key. Register calls are serialized within one server process, and if saving the key fails the tool returns an error (the key is retried on the next call) instead of continuing silently
 6. Remove `deva_agent_register` from `tool_policy.enabled_tools` after registration unless you still need it.
 7. All authenticated requests use `Authorization: Bearer deva_xxx`
 
-> **`client_id` is a secret.** Anyone with the agent name and `client_id` can mint a new key for an unclaimed agent and revoke yours. Keep `~/.deva-mcp/config.json` private; never commit, log, or share the `client_id`.
+> **`client_id` is a secret.** Anyone with the agent name and `client_id` can mint a new key for an unclaimed agent and revoke yours. The config file is rewritten with mode `0600` on every save (including files created earlier with looser permissions). Never commit, log, or share the `client_id`.
 
 ## Pricing (Current)
 
@@ -322,7 +322,7 @@ Config shape:
     "default": {
       "name": "my_agent.agent",
       "api_key": "deva_***",
-      "client_id": "<generated, secret>"
+      "client_ids": { "my_agent": "<generated, secret>" }
     }
   },
   "defaults": {

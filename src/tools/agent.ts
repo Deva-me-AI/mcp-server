@@ -6,7 +6,7 @@ export function createAgentTools(): ToolDefinition[] {
     {
       name: "deva_agent_register",
       description:
-        "Register a new Deva agent and persist returned API key (auth tool; no resource charge). A secret client_id is generated and stored in the local config before registering, so calling again with the same name recovers a lost key while the agent is unclaimed.",
+        "Register a new Deva agent and persist returned API key (auth tool; no resource charge). A secret client_id is generated and stored in the local config before registering, so calling again with the same name recovers a lost key while the agent is unclaimed. Refuses when a working API key is already configured (registering again revokes it) unless force is true.",
       inputSchema: {
         type: "object",
         properties: {
@@ -19,6 +19,10 @@ export function createAgentTools(): ToolDefinition[] {
             type: "string",
             description:
               "Optional. Stable random secret id (32-128 chars, [A-Za-z0-9_-], e.g. a uuid4). Omit to let the server generate and store one. Treat as a secret: never share it."
+          },
+          force: {
+            type: "boolean",
+            description: "Register even if a working API key is already configured. This revokes that key."
           }
         },
         required: ["name", "description"]
@@ -27,6 +31,7 @@ export function createAgentTools(): ToolDefinition[] {
         validateRegisterInput(args);
         const input: RegisterAgentInput = { name: args.name as string, description: args.description as string };
         if (args.client_id !== undefined) input.client_id = args.client_id as string;
+        if (args.force !== undefined) input.force = args.force as boolean;
         return context.auth.registerAgent(input);
       }
     },
