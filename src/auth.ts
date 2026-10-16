@@ -120,7 +120,7 @@ export class AuthManager {
     validateRegisterInput(input);
     // A key supplied via DEVA_API_KEY always wins over the config file on restart, so a
     // key saved here would be ignored and the env key would be the revoked one.
-    if (process.env.DEVA_API_KEY) {
+    if (process.env.DEVA_API_KEY !== undefined) {
       throw new DevaError({
         message:
           "DEVA_API_KEY is set, so a newly registered key would be ignored on restart. Unset DEVA_API_KEY to register from the MCP server, or register elsewhere and update DEVA_API_KEY."

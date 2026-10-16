@@ -22,7 +22,7 @@ export function createAgentTools(): ToolDefinition[] {
           },
           force: {
             type: "boolean",
-            description: "Register even if a working API key is already configured. This revokes that key."
+            description: "Register even if a working API key is already configured. The stored key is replaced (and revoked if it belongs to the same unclaimed agent)."
           }
         },
         required: ["name", "description", "client_id"]
