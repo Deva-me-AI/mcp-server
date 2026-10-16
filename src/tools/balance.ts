@@ -4,10 +4,20 @@ export function createBalanceTools(): ToolDefinition[] {
   return [
     {
       name: "deva_balance_get",
-      description: "Get current karma balance (free).",
-      inputSchema: { type: "object", properties: {} },
-      async execute(_args, context) {
-        return context.client.request({ method: "GET", path: "/v1/agents/karma/balance" });
+      description:
+        "Get the agent's balance: own wallet, total_spendable, and owner budget envelope (free). Amounts are in credits by default (1 credit = $1 = 1000₭).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          unit: { type: "string", description: "Amount unit (default credits).", enum: ["credits", "karma", "usd"] }
+        }
+      },
+      async execute(args, context) {
+        return context.client.request({
+          method: "GET",
+          path: "/v1/agents/balance",
+          query: { unit: typeof args.unit === "string" ? args.unit : undefined }
+        });
       }
     },
     {

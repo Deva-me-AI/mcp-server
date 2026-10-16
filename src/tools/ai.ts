@@ -96,7 +96,7 @@ export function createAiTools(): ToolDefinition[] {
 
         return context.client.request({
           method: "POST",
-          path: "/chat/completions",
+          path: "/v1/chat/completions",
           body: {
             model,
             messages: args.messages,
@@ -108,27 +108,46 @@ export function createAiTools(): ToolDefinition[] {
     },
     {
       name: "deva_ai_transcription",
-      description: "Transcribe audio using Groq Whisper. Supports mp3, wav, m4a, webm. Pricing: 5₭ ($0.005) per 24s audio.",
+      description:
+        "Transcribe audio (mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg, flac; max 25MB). Provide audio_url (fetched locally and uploaded) or audio_base64. Pricing: 5₭ ($0.005) per 24s audio.",
       inputSchema: {
         type: "object",
         properties: {
-          audio_url: { type: "string", description: "URL to an audio file to transcribe." },
-          language: { type: "string", description: "Optional language hint." }
-        },
-        required: ["audio_url"]
+          audio_url: { type: "string", description: "http(s) URL of an audio file; it is downloaded and uploaded as multipart 'file'." },
+          audio_base64: { type: "string", description: "Base64-encoded audio bytes (alternative to audio_url)." },
+          filename: { type: "string", description: "Filename sent with the upload; the extension tells the server the format (default derived from URL or audio.mp3)." },
+          language: { type: "string", description: "Optional ISO 639-1 language hint (e.g. en, es)." }
+        }
       },
       async execute(args, context) {
-        const audioUrl = String(args.audio_url ?? "");
-        if (!audioUrl) throw new Error("audio_url is required");
+        const audioUrl = typeof args.audio_url === "string" ? args.audio_url : "";
+        const audioBase64 = typeof args.audio_base64 === "string" ? args.audio_base64 : "";
+        if (!audioUrl && !audioBase64) throw new Error("audio_url or audio_base64 is required");
 
-        return context.client.request({
-          method: "POST",
-          path: "/ai/transcribe",
-          body: {
-            audio_url: audioUrl,
-            language: typeof args.language === "string" ? args.language : undefined
+        let bytes: Uint8Array<ArrayBuffer>;
+        let filename = typeof args.filename === "string" && args.filename ? args.filename : "";
+        if (audioUrl) {
+          const parsed = new URL(audioUrl);
+          if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+            throw new Error("audio_url must be an http(s) URL");
           }
-        });
+          const download = await fetch(parsed);
+          if (!download.ok) throw new Error(`failed to download audio_url: HTTP ${download.status}`);
+          bytes = new Uint8Array(await download.arrayBuffer());
+          if (!filename) filename = parsed.pathname.split("/").pop() || "";
+        } else {
+          const decoded = Buffer.from(audioBase64, "base64");
+          bytes = new Uint8Array(decoded.byteLength);
+          bytes.set(decoded);
+        }
+        if (bytes.byteLength === 0) throw new Error("audio is empty");
+
+        // The API takes multipart/form-data: file (required) + language (optional).
+        const form = new FormData();
+        form.append("file", new Blob([bytes]), filename || "audio.mp3");
+        if (typeof args.language === "string" && args.language) form.append("language", args.language);
+
+        return context.client.request({ method: "POST", path: "/v1/ai/transcribe", body: form });
       }
     }
   ];

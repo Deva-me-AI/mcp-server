@@ -126,8 +126,10 @@ export class DevaClient {
       const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? this.config.timeoutMs);
 
       try {
+        // Multipart bodies (FormData) must let fetch set the boundary header itself.
+        const isMultipart = typeof FormData !== "undefined" && options.body instanceof FormData;
         const headers: Record<string, string> = {
-          "content-type": "application/json",
+          ...(isMultipart ? {} : { "content-type": "application/json" }),
           ...options.headers
         };
 
@@ -142,7 +144,8 @@ export class DevaClient {
         const response = await this.httpClient.fetch(url, {
           method: options.method,
           headers,
-          body: options.body === undefined ? undefined : JSON.stringify(options.body),
+          body:
+            options.body === undefined ? undefined : isMultipart ? (options.body as FormData) : JSON.stringify(options.body),
           signal: controller.signal
         });
 

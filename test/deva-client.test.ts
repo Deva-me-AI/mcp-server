@@ -82,4 +82,17 @@ describe("DevaClient", () => {
       }
     } satisfies Partial<DevaError>);
   });
+  it("sends FormData bodies as multipart without forcing a JSON content-type", async () => {
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array([1])]), "a.mp3");
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.body).toBe(form);
+      expect((init?.headers as Record<string, string>)["content-type"]).toBeUndefined();
+      return new Response(JSON.stringify({ text: "hi" }), { status: 200 });
+    });
+
+    const client = new DevaClient(makeConfig(), () => "deva_test", { fetch: fetchMock });
+    await client.request({ method: "POST", path: "/v1/ai/transcribe", body: form });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

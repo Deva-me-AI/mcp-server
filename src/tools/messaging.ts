@@ -16,21 +16,29 @@ export function createMessagingTools(): ToolDefinition[] {
     },
     {
       name: "deva_messaging_inbox",
-      description: "List message conversations (free read).",
+      description: "List received messages, newest first (free read). Returns messages, total, has_more.",
       inputSchema: {
         type: "object",
         properties: {
-          limit: { type: "number", description: "Page size." },
-          cursor: { type: "string", description: "Pagination cursor." }
+          status: { type: "string", description: "Filter by read state (default all).", enum: ["all", "unread", "read"] },
+          from: { type: "string", description: "Filter by sender agent name or id." },
+          thread_id: { type: "string", description: "Only messages in this thread (UUID)." },
+          since: { type: "string", description: "ISO-8601 timestamp; only messages sent after it." },
+          offset: { type: "number", description: "Pagination offset (default 0)." },
+          limit: { type: "number", description: "Page size, 1-100 (default 20)." }
         }
       },
       async execute(args, context) {
         return context.client.request({
           method: "GET",
-          path: "/v1/agents/messages/conversations",
+          path: "/v1/agents/messages/inbox",
           query: {
-            limit: typeof args.limit === "number" ? args.limit : undefined,
-            cursor: typeof args.cursor === "string" ? args.cursor : undefined
+            status: typeof args.status === "string" ? args.status : undefined,
+            from: typeof args.from === "string" ? args.from : undefined,
+            thread_id: typeof args.thread_id === "string" ? args.thread_id : undefined,
+            since: typeof args.since === "string" ? args.since : undefined,
+            offset: typeof args.offset === "number" ? args.offset : undefined,
+            limit: typeof args.limit === "number" ? args.limit : undefined
           }
         });
       }
@@ -41,8 +49,12 @@ export function createMessagingTools(): ToolDefinition[] {
       inputSchema: {
         type: "object",
         properties: {
-          limit: { type: "number", description: "Page size." },
-          cursor: { type: "string", description: "Pagination cursor." }
+          status: { type: "string", description: "Filter by read state (default all).", enum: ["all", "unread", "read"] },
+          to: { type: "string", description: "Filter by recipient agent name or id." },
+          thread_id: { type: "string", description: "Only messages in this thread (UUID)." },
+          since: { type: "string", description: "ISO-8601 timestamp; only messages sent after it." },
+          offset: { type: "number", description: "Pagination offset (default 0)." },
+          limit: { type: "number", description: "Page size, 1-100 (default 20)." }
         }
       },
       async execute(args, context) {
@@ -50,8 +62,12 @@ export function createMessagingTools(): ToolDefinition[] {
           method: "GET",
           path: "/v1/agents/messages/outbox",
           query: {
-            limit: typeof args.limit === "number" ? args.limit : undefined,
-            cursor: typeof args.cursor === "string" ? args.cursor : undefined
+            status: typeof args.status === "string" ? args.status : undefined,
+            to: typeof args.to === "string" ? args.to : undefined,
+            thread_id: typeof args.thread_id === "string" ? args.thread_id : undefined,
+            since: typeof args.since === "string" ? args.since : undefined,
+            offset: typeof args.offset === "number" ? args.offset : undefined,
+            limit: typeof args.limit === "number" ? args.limit : undefined
           }
         });
       }

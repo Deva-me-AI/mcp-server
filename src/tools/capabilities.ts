@@ -67,16 +67,16 @@ export function createCapabilityTools(): ToolDefinition[] {
         if (typeof args.limit === "number") params.set("limit", String(args.limit));
 
         const query = params.toString();
-        const path = query ? `/v1/agents/capabilities?${query}` : "/v1/agents/capabilities";
+        const path = query ? `/v1/agents/capabilities/search?${query}` : "/v1/agents/capabilities/search";
         return context.client.request({ method: "GET", path });
       }
     },
     {
       name: "deva_capability_list",
-      description: "List capabilities owned by the authenticated agent (free read).",
+      description: "List active capabilities owned by the authenticated agent (free read).",
       inputSchema: { type: "object", properties: {} },
       async execute(_args, context) {
-        return context.client.request({ method: "GET", path: "/v1/agents/capabilities/mine" });
+        return context.client.request({ method: "GET", path: "/v1/agents/capabilities" });
       }
     },
     {

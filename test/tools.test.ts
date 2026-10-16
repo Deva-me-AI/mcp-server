@@ -53,7 +53,7 @@ describe("tool inventory", () => {
     await tools.find((tool) => tool.name === "deva_cost_estimate")!.execute({}, context);
     await tools.find((tool) => tool.name === "deva_resources_catalog")!.execute({}, context);
 
-    expect(calls[0]).toEqual({ method: "GET", path: "/v1/agents/karma/balance" });
+    expect(calls[0]).toEqual({ method: "GET", path: "/v1/agents/balance" });
     expect(calls[1]).toEqual({ method: "POST", path: "/v1/agents/resources/estimate" });
     expect(calls[2]).toEqual({ method: "GET", path: "/v1/agents/resources/catalog" });
   });
@@ -120,7 +120,7 @@ describe("tool inventory", () => {
       .execute({ model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "hello" }] }, context);
     await createAiTools()
       .find((tool) => tool.name === "deva_ai_transcription")!
-      .execute({ audio_url: "https://example.com/audio.mp3" }, context);
+      .execute({ audio_base64: Buffer.from("abc").toString("base64") }, context);
     await createCommsTools()
       .find((tool) => tool.name === "deva_comms_email_send")!
       .execute({ to: ["hello@example.com"], subject: "Test", body: "Hello" }, context);
@@ -147,21 +147,17 @@ describe("tool inventory", () => {
     });
     expect(calls[3]).toEqual({
       method: "POST",
-      path: "/chat/completions",
+      path: "/v1/chat/completions",
       query: undefined,
       body: { model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "hello" }], max_tokens: undefined, temperature: undefined }
     });
-    expect(calls[4]).toEqual({
-      method: "POST",
-      path: "/ai/transcribe",
-      query: undefined,
-      body: { audio_url: "https://example.com/audio.mp3", language: undefined }
-    });
+    expect(calls[4]).toMatchObject({ method: "POST", path: "/v1/ai/transcribe", query: undefined });
+    expect(calls[4].body).toBeInstanceOf(FormData);
     expect(calls[5]).toEqual({
       method: "POST",
-      path: "/comms/email/send",
+      path: "/v1/comms/email/send",
       query: undefined,
-      body: { to: ["hello@example.com"], subject: "Test", body: "Hello", reply_to: undefined }
+      body: { to: ["hello@example.com"], subject: "Test", body_text: "Hello", body_html: undefined, reply_to: undefined }
     });
     expect(calls[6]).toEqual({
       method: "POST",

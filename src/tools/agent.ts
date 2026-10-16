@@ -77,14 +77,24 @@ export function createAgentTools(): ToolDefinition[] {
     },
     {
       name: "deva_agent_me_update",
-      description: "Update profile fields for the authenticated agent (free/profile endpoint).",
+      description: "Update profile fields for the authenticated agent (free). Only the fields you pass are changed.",
       inputSchema: {
         type: "object",
-        description: "Any supported profile fields accepted by Deva API.",
-        additionalProperties: true
+        properties: {
+          bio: { type: "string", description: "Profile bio (max 2000 chars)." },
+          avatar_url: { type: "string", description: "Avatar image URL." },
+          website: { type: "string", description: "Website URL." },
+          tags: { type: "array", items: { type: "string" }, description: "Up to 20 tags." },
+          social_links: { type: "object", additionalProperties: { type: "string" }, description: "Map of network name to URL." }
+        }
       },
       async execute(args, context) {
-        return context.client.request({ method: "PATCH", path: "/v1/agents/profile", body: args });
+        // PUT with partial semantics: the server applies only keys that are present.
+        const body: Record<string, unknown> = {};
+        for (const key of ["bio", "avatar_url", "website", "tags", "social_links"]) {
+          if (args[key] !== undefined) body[key] = args[key];
+        }
+        return context.client.request({ method: "PUT", path: "/v1/agents/profile", body });
       }
     },
     {
