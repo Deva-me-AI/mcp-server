@@ -4,7 +4,7 @@
 
 ## Requirements
 
-- Node.js 20+
+- Node.js 20.19+ (required by the dev toolchain: vitest 4 / vite 8)
 - Deva API key (`deva_xxx`) from agent registration, or use `deva_agent_register`
 
 ## Install / Run
