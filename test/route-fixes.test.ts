@@ -8,6 +8,9 @@ import { createMessagingTools } from "../src/tools/messaging.js";
 import { createServerTools } from "../src/tools/servers.js";
 import type { ToolDefinition } from "../src/tools/types.js";
 
+const dnsLookup = vi.hoisted(() => vi.fn(async (_host: string, _opts?: unknown) => [{ address: "93.184.215.14", family: 4 }]));
+vi.mock("node:dns/promises", () => ({ lookup: dnsLookup }));
+
 // Each assertion mirrors the live API route (method + path + request schema).
 // The previous paths all returned 404 on api.deva.me.
 
@@ -89,6 +92,64 @@ describe("route fixes", () => {
     await expect(tool.execute({ audio_url: "file:///etc/passwd" }, harness().context as never)).rejects.toThrow(/http/);
   });
 
+  it("deva_ai_transcription audio_url download rejects private hosts, redirects and oversize bodies", async () => {
+    const tool = createAiTools().find((t) => t.name === "deva_ai_transcription")!;
+    const ctx = harness().context as never;
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array([1]), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    // Private / loopback / link-local / mapped addresses, by literal and via DNS.
+    for (const url of [
+      "http://127.0.0.1/a.mp3",
+      "http://169.254.169.254/latest/meta-data",
+      "http://[::1]/a.mp3",
+      "http://[::ffff:10.0.0.1]/a.mp3",
+      "http://[fd00::1]/a.mp3"
+    ]) {
+      await expect(tool.execute({ audio_url: url }, ctx)).rejects.toThrow(/public host/);
+    }
+    dnsLookup.mockResolvedValueOnce([
+      { address: "93.184.215.14", family: 4 },
+      { address: "192.168.1.5", family: 4 }
+    ]);
+    await expect(tool.execute({ audio_url: "https://internal.example.com/a.mp3" }, ctx)).rejects.toThrow(/public host/);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Redirects are refused (fetch is called with redirect: manual).
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: "http://127.0.0.1/" } }));
+    await expect(tool.execute({ audio_url: "https://example.com/a.mp3" }, ctx)).rejects.toThrow(/redirects are not allowed/);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
+
+    // Oversize via Content-Length and via streamed bytes without a declared length.
+    fetchMock.mockResolvedValueOnce(
+      new Response(new Uint8Array([1]), { status: 200, headers: { "content-length": String(26 * 1024 * 1024) } })
+    );
+    await expect(tool.execute({ audio_url: "https://example.com/a.mp3" }, ctx)).rejects.toThrow(/25MB/);
+    const chunk = new Uint8Array(1024 * 1024);
+    let sent = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent++ < 30) controller.enqueue(chunk);
+        else controller.close();
+      }
+    });
+    fetchMock.mockResolvedValueOnce(new Response(stream, { status: 200 }));
+    await expect(tool.execute({ audio_url: "https://example.com/a.mp3" }, ctx)).rejects.toThrow(/25MB/);
+  });
+
+  it("deva_ai_transcription derives the upload extension from Content-Type, else URL, else rejects", async () => {
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array([1]), { status: 200, headers: { "content-type": "audio/x-wav" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const call = await run(createAiTools(), "deva_ai_transcription", { audio_url: "https://example.com/stream/clip" });
+    expect(((call.body as FormData).get("file") as File).name).toBe("clip.wav");
+
+    fetchMock.mockResolvedValueOnce(new Response(new Uint8Array([1]), { status: 200, headers: { "content-type": "application/octet-stream" } }));
+    const tool = createAiTools().find((t) => t.name === "deva_ai_transcription")!;
+    await expect(tool.execute({ audio_url: "https://example.com/download?id=1" }, harness().context as never)).rejects.toThrow(
+      /supported formats: mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg, flac/
+    );
+  });
+
   it("deva_comms_email_send -> POST /v1/comms/email/send with body_text/body_html", async () => {
     const call = await run(createCommsTools(), "deva_comms_email_send", {
       to: ["a@example.com"],
@@ -113,6 +174,11 @@ describe("route fixes", () => {
   it("deva_agent_me_update -> PUT /v1/agents/profile with only schema fields", async () => {
     const call = await run(createAgentTools(), "deva_agent_me_update", { bio: "hello", tags: ["a"], unknown: 1 });
     expect(call).toEqual({ method: "PUT", path: "/v1/agents/profile", body: { bio: "hello", tags: ["a"] } });
+
+    const { calls, context } = harness();
+    const tool = createAgentTools().find((t) => t.name === "deva_agent_me_update")!;
+    await expect(tool.execute({ unknown: 1 }, context as never)).rejects.toThrow(/at least one of/);
+    expect(calls).toHaveLength(0);
   });
 
   it("deva_capability_list -> GET /v1/agents/capabilities; search -> /v1/agents/capabilities/search", async () => {

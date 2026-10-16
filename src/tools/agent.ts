@@ -94,6 +94,9 @@ export function createAgentTools(): ToolDefinition[] {
         for (const key of ["bio", "avatar_url", "website", "tags", "social_links"]) {
           if (args[key] !== undefined) body[key] = args[key];
         }
+        if (Object.keys(body).length === 0) {
+          throw new Error("provide at least one of: bio, avatar_url, website, tags, social_links");
+        }
         return context.client.request({ method: "PUT", path: "/v1/agents/profile", body });
       }
     },

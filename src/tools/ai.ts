@@ -1,3 +1,4 @@
+import { downloadAudio } from "./audio-download.js";
 import { ToolDefinition } from "./types.js";
 
 export function createAiTools(): ToolDefinition[] {
@@ -109,13 +110,13 @@ export function createAiTools(): ToolDefinition[] {
     {
       name: "deva_ai_transcription",
       description:
-        "Transcribe audio (mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg, flac; max 25MB). Provide audio_url (fetched locally and uploaded) or audio_base64. Pricing: 5₭ ($0.005) per 24s audio.",
+        "Transcribe audio (mp3, mp4, mpeg, mpga, m4a, wav, webm, ogg, flac; max 25MB). Prefer audio_base64; audio_url (public http(s) only, no redirects, 30s timeout) is downloaded locally and uploaded. Pricing: 5₭ ($0.005) per 24s audio.",
       inputSchema: {
         type: "object",
         properties: {
-          audio_url: { type: "string", description: "http(s) URL of an audio file; it is downloaded and uploaded as multipart 'file'." },
-          audio_base64: { type: "string", description: "Base64-encoded audio bytes (alternative to audio_url)." },
-          filename: { type: "string", description: "Filename sent with the upload; the extension tells the server the format (default derived from URL or audio.mp3)." },
+          audio_base64: { type: "string", description: "Base64-encoded audio bytes (preferred)." },
+          audio_url: { type: "string", description: "Public http(s) URL of an audio file (max 25MB, redirects not followed); downloaded and uploaded as multipart 'file'." },
+          filename: { type: "string", description: "Filename sent with the upload; the extension tells the server the format (default derived from the download Content-Type/URL, or audio.mp3 for base64)." },
           language: { type: "string", description: "Optional ISO 639-1 language hint (e.g. en, es)." }
         }
       },
@@ -127,14 +128,9 @@ export function createAiTools(): ToolDefinition[] {
         let bytes: Uint8Array<ArrayBuffer>;
         let filename = typeof args.filename === "string" && args.filename ? args.filename : "";
         if (audioUrl) {
-          const parsed = new URL(audioUrl);
-          if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-            throw new Error("audio_url must be an http(s) URL");
-          }
-          const download = await fetch(parsed);
-          if (!download.ok) throw new Error(`failed to download audio_url: HTTP ${download.status}`);
-          bytes = new Uint8Array(await download.arrayBuffer());
-          if (!filename) filename = parsed.pathname.split("/").pop() || "";
+          const download = await downloadAudio(audioUrl);
+          bytes = download.bytes;
+          if (!filename) filename = `${download.basename}.${download.extension}`;
         } else {
           const decoded = Buffer.from(audioBase64, "base64");
           bytes = new Uint8Array(decoded.byteLength);
