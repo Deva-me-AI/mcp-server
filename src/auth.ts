@@ -118,10 +118,18 @@ export class AuthManager {
 
   private async registerAgentLocked(input: RegisterAgentInput): Promise<RegisterAgentOutput> {
     validateRegisterInput(input);
+    // A key supplied via DEVA_API_KEY always wins over the config file on restart, so a
+    // key saved here would be ignored and the env key would be the revoked one.
+    if (process.env.DEVA_API_KEY) {
+      throw new DevaError({
+        message:
+          "DEVA_API_KEY is set, so a newly registered key would be ignored on restart. Unset DEVA_API_KEY to register from the MCP server, or register elsewhere and update DEVA_API_KEY."
+      });
+    }
     if (!input.force && (await this.hasWorkingApiKey())) {
       throw new DevaError({
         message:
-          "Already registered: the configured API key works. Registering again revokes it; pass force: true to rotate the key anyway."
+          "Already registered: the configured API key works. Registering again replaces the stored key (and revokes it if it belongs to the same unclaimed agent); pass force: true to do it anyway."
       });
     }
 

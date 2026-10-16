@@ -112,6 +112,19 @@ describe("AuthManager.registerAgent", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("refuses to register while DEVA_API_KEY is set, without calling the API", async () => {
+    const config = await makeConfig();
+    const fetchMock = vi.fn();
+    const auth = new AuthManager(config, new DevaClient(config, () => undefined, { fetch: fetchMock as never }));
+    vi.stubEnv("DEVA_API_KEY", "deva_from_env");
+    try {
+      await expect(auth.registerAgent({ ...baseInput, force: true } as never)).rejects.toThrow(/DEVA_API_KEY is set/);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("refuses to re-register while the stored key works, unless force is true", async () => {
     const config = await makeConfig();
     config.apiKey = "deva_existing_key";
