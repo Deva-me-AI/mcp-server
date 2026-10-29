@@ -18,7 +18,11 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e:live": "bash test/e2e-live.sh"
+    "test:e2e:live": "bash test/e2e-live.sh",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:release": "node --test scripts/release.test.mjs",
+    "test:pack": "node scripts/smoke-pack.mjs",
+    "prepack": "npm run build"
   },
   "keywords": [
     "mcp",
@@ -37,5 +41,12 @@
     "tsx": "^4.23.15",
     "typescript": "^5.7.3",
     "vitest": "^4.1.12"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Deva-me-AI/mcp-server.git"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
