@@ -284,7 +284,7 @@ export class ToolPolicyEnforcer {
     }
   }
 
-  reserveSpend(toolName: string): ToolSpendReservation | undefined {
+  reserveSpend(toolName: string, requestedKarma?: number): ToolSpendReservation | undefined {
     this.assertCanExecute(toolName);
 
     if (!getToolSecurityMetadata(toolName).paid) {
@@ -292,7 +292,10 @@ export class ToolPolicyEnforcer {
     }
 
     const remaining = this.getRemainingBudget(toolName);
-    const reservedKarma = Math.min(remaining.session, remaining.tool);
+    if (requestedKarma !== undefined && (!Number.isFinite(requestedKarma) || requestedKarma <= 0)) {
+      throw this.denied("Requested spend must be a positive finite amount.");
+    }
+    const reservedKarma = requestedKarma ?? Math.min(remaining.session, remaining.tool);
     this.assertBudgetAvailable(toolName, reservedKarma);
 
     const reservation: ToolSpendReservation = {

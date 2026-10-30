@@ -1,6 +1,7 @@
 import { writeFile, rename, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
+import type { DevaClient } from "../deva-client.js";
 import { asString, ToolDefinition } from "./types.js";
 
 const ROOT = "/v1/agents/resources";
@@ -21,6 +22,20 @@ function body(args: Record<string, unknown>): Record<string, unknown> {
     throw new Error("maxTotalChargeUsd must be between 0.001 and 1000000000");
   }
   return { slug, params: args.params ?? {}, ...(cap === undefined ? {} : { maxTotalChargeUsd: cap }) };
+}
+
+/** Resolve a bounded credit ceiling before reserving local spend. */
+export async function prepareRailRun(args: Record<string, unknown>, client: DevaClient): Promise<Record<string, unknown>> {
+  const payload = body(args);
+  if (payload.maxTotalChargeUsd !== undefined) return args;
+  const estimate = await client.request<Record<string, unknown>>({
+    method: "POST", path: `${ROOT}/estimate`, body: payload, requiresAuth: false
+  });
+  const credits = estimate?.amount_credits;
+  if (typeof credits !== "number" || !Number.isFinite(credits) || credits < 0.001 || credits > 1e9) {
+    throw new Error("Estimate has no valid credit ceiling; provide maxTotalChargeUsd explicitly");
+  }
+  return { ...args, maxTotalChargeUsd: credits };
 }
 
 async function result(args: Record<string, unknown>, request: () => Promise<Record<string, unknown>>): Promise<unknown> {

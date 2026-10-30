@@ -8,6 +8,8 @@ import { DevaMcpServer } from "../src/server.js";
 import { buildDefaultToolPolicyConfig, normalizeToolPolicyConfig, ToolPolicyEnforcer } from "../src/tool-policy.js";
 import { createRailTools } from "../src/tools/rail.js";
 
+type CallHandler = (request: { method: string; params: { name: string; arguments: Record<string, unknown> } }) => Promise<{ isError?: boolean; content: { text: string }[] }>;
+
 const config = { apiBase: "https://api.deva.test", timeoutMs: 1000 } as RuntimeConfig;
 const directories: string[] = [];
 afterEach(async () => {
@@ -118,14 +120,49 @@ describe("generic tool rail", () => {
     expect(normalizeToolPolicyConfig({}).enabled_tools).toContain("deva_tools_run");
   });
 
+  it.each([true, false])("reserves only the requested run cost (explicit cap: %s)", async explicit => {
+    const toolPolicy = { ...buildDefaultToolPolicyConfig(), spend_caps: { session_karma: 500, default_tool_karma: 500, per_tool_karma: {} } };
+    const fetch = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify(
+      String(input).endsWith("/estimate") ? { amount_credits: 0.1, deterministic: false } : { run_id: "r1", status: "running" }
+    ), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    const server = new DevaMcpServer({ ...config, apiKey: "test", toolPolicy });
+    const internals = server as unknown as { mcpServer: { _requestHandlers: Map<string, CallHandler> }; toolPolicy: ToolPolicyEnforcer };
+    const call = internals.mcpServer._requestHandlers.get("tools/call")!;
+    const args = { slug: "future/tool", ...(explicit ? { maxTotalChargeUsd: 0.1 } : {}) };
+    for (let i = 0; i < 2; i++) {
+      const response = await call({ method: "tools/call", params: { name: "deva_tools_run", arguments: args } });
+      expect(response.isError).not.toBe(true);
+      expect(internals.toolPolicy.getSessionKarmaSpent()).toBe((i + 1) * 100);
+    }
+    const runs = fetch.mock.calls.filter(([url]) => String(url).includes("/run/"));
+    expect(runs).toHaveLength(2);
+    for (const [, init] of runs) expect(JSON.parse(String(init?.body)).maxTotalChargeUsd).toBe(0.1);
+  });
+
+  it.each([{}, { amount_credits: -1 }, { amount_credits: "0.1" }, { amount_credits: 0 }, { amount_credits: 1e10 }])("rejects an invalid estimate before starting a paid run: %j", async estimate => {
+    const toolPolicy = { ...buildDefaultToolPolicyConfig(), spend_caps: { session_karma: 500, default_tool_karma: 500, per_tool_karma: {} } };
+    const fetch = vi.fn(async () => new Response(JSON.stringify(estimate)));
+    vi.stubGlobal("fetch", fetch);
+    const server = new DevaMcpServer({ ...config, apiKey: "test", toolPolicy });
+    const internals = server as unknown as { mcpServer: { _requestHandlers: Map<string, CallHandler> }; toolPolicy: ToolPolicyEnforcer };
+    const call = internals.mcpServer._requestHandlers.get("tools/call")!;
+    const response = await call({ method: "tools/call", params: { name: "deva_tools_run", arguments: { slug: "future/tool" } } });
+    expect(response.isError).toBe(true);
+    expect(response.content[0].text).toContain("provide maxTotalChargeUsd");
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("https://api.deva.test/v1/agents/resources/estimate", expect.anything());
+    expect(internals.toolPolicy.getSessionKarmaPending()).toBe(0);
+    expect(internals.toolPolicy.getSessionKarmaSpent()).toBe(0);
+  });
+
   it("returns async handles through the MCP boundary and accounts for their reserved ceiling", async () => {
     const toolPolicy = { ...buildDefaultToolPolicyConfig(), spend_caps: { session_karma: 500, default_tool_karma: 500, per_tool_karma: {} } };
     const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ run_id: "r1", status: "running" }), { status: 202 }));
     vi.stubGlobal("fetch", fetch);
     const server = new DevaMcpServer({ ...config, apiKey: "test", toolPolicy });
-    const internals = server as unknown as { mcpServer: { _requestHandlers: Map<string, Function> }; toolPolicy: ToolPolicyEnforcer };
+    const internals = server as unknown as { mcpServer: { _requestHandlers: Map<string, CallHandler> }; toolPolicy: ToolPolicyEnforcer };
     const call = internals.mcpServer._requestHandlers.get("tools/call")!;
-    const response = await call({ method: "tools/call", params: { name: "deva_tools_run", arguments: { slug: "future/tool" } } });
+    const response = await call({ method: "tools/call", params: { name: "deva_tools_run", arguments: { slug: "future/tool", maxTotalChargeUsd: 0.5 } } });
     expect(response.isError).not.toBe(true);
     expect(JSON.parse(response.content[0].text)).toMatchObject({ run_id: "r1", next_action: expect.stringContaining("deva_tools_get_run") });
     expect(internals.toolPolicy.getSessionKarmaSpent()).toBe(500);

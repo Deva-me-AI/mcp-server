@@ -36,9 +36,10 @@ Paid runs still need positive local session and tool caps, for example:
 ```
 
 The REST field `maxTotalChargeUsd` is a credit ceiling (1 credit = $1 = 1000 karma).
-The server limits it to the remaining local budget. For generic runs, the entire
-local reservation counts against process spend caps, even if the run ultimately
-costs less; polling does not count it again. This conservative accounting keeps
+The server reserves this ceiling, or a fresh credit estimate when it is omitted,
+and rejects runs that exceed the remaining local budget. The reserved ceiling is
+also sent to the API as the run cap. For generic runs, the entire local reservation
+counts against process spend caps, even if the run ultimately costs less; polling does not count it again. This conservative accounting keeps
 async run handles available before final billing is known. Caps reset on restart.
 
 `deva_tools_run` returns the API's `run_id` and `status`, plus polling instructions

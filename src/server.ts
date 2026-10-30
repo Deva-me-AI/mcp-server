@@ -9,7 +9,7 @@ import { formatErrorForTool } from "./errors.js";
 import { ToolPolicyEnforcer, ToolSpendReservation, assertKnownToolPolicies } from "./tool-policy.js";
 import { createAgentTools } from "./tools/agent.js";
 import { createAiTools } from "./tools/ai.js";
-import { createRailTools } from "./tools/rail.js";
+import { createRailTools, prepareRailRun } from "./tools/rail.js";
 import { createBalanceTools } from "./tools/balance.js";
 import { createCapabilityTools } from "./tools/capabilities.js";
 import { createCommsTools } from "./tools/comms.js";
@@ -110,8 +110,12 @@ export class DevaMcpServer {
       let spendReservation: ToolSpendReservation | undefined;
 
       try {
-        spendReservation = this.toolPolicy.reserveSpend(toolName);
-        const args = (request.params.arguments ?? {}) as Record<string, unknown>;
+        this.toolPolicy.assertCanExecute(toolName);
+        let args = (request.params.arguments ?? {}) as Record<string, unknown>;
+        if (toolName === "deva_tools_run") args = await prepareRailRun(args, this.client);
+        spendReservation = this.toolPolicy.reserveSpend(
+          toolName, toolName === "deva_tools_run" ? (args.maxTotalChargeUsd as number) * 1000 : undefined
+        );
         const context: ToolContext = {
           client: this.client,
           auth: this.auth,
