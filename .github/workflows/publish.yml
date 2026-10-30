@@ -2,35 +2,41 @@ name: Publish npm package
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ['v*.*.*']
+  workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     environment: npm
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm test
-
-      - name: Build package
-        run: npm run build
-
+          node-version: '24'
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing requires npm >=11.5.1.
+      - run: npm install --global npm@11.6.2
+      - name: Validate release tag and version
+        if: github.event_name == 'push'
+        run: node scripts/check-release.mjs
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint --if-present
+      - run: npm test
+      - run: npm run test:release
+      - run: npm run build
+      - run: npm run test:pack
+      - name: Validate package without publishing
+        if: github.event_name == 'workflow_dispatch'
+        run: npm pack --dry-run
       - name: Publish with provenance
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         run: npm publish --provenance --access public
