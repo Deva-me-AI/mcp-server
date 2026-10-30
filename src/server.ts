@@ -9,6 +9,7 @@ import { formatErrorForTool } from "./errors.js";
 import { ToolPolicyEnforcer, ToolSpendReservation, assertKnownToolPolicies } from "./tool-policy.js";
 import { createAgentTools } from "./tools/agent.js";
 import { createAiTools } from "./tools/ai.js";
+import { createRailTools } from "./tools/rail.js";
 import { createBalanceTools } from "./tools/balance.js";
 import { createCapabilityTools } from "./tools/capabilities.js";
 import { createCommsTools } from "./tools/comms.js";
@@ -47,6 +48,7 @@ export class DevaMcpServer {
       ...createAiTools(),
       ...createStorageTools(),
       ...createBalanceTools(),
+      ...createRailTools(),
       ...createMessagingTools(),
       ...createCommsTools(),
       ...createWalletTools(),
@@ -63,7 +65,7 @@ export class DevaMcpServer {
     this.mcpServer = new Server(
       {
         name: "@deva-me/mcp-server",
-        version: "0.1.2"
+        version: "0.2.0"
       },
       {
         capabilities: {
@@ -112,7 +114,8 @@ export class DevaMcpServer {
         const args = (request.params.arguments ?? {}) as Record<string, unknown>;
         const context: ToolContext = {
           client: this.client,
-          auth: this.auth
+          auth: this.auth,
+          maxRunCredits: toolName === "deva_tools_run" && spendReservation ? spendReservation.reservedKarma / 1000 : undefined
         };
 
         const payload = await tool.execute(args, context);

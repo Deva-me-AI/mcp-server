@@ -2,6 +2,91 @@
 
 `@deva-me/mcp-server` is a production stdio MCP server that maps Deva Agent Resources API endpoints to MCP tools for Claude Code, Claude Desktop, Cursor, OpenClaw, and other MCP clients.
 
+## Generic tool loop
+
+Use one provider-independent loop for every tool in the catalog:
+
+| Tool | Purpose | Cost |
+| --- | --- | --- |
+| `deva_tools_discover` | Search with `q`; optionally filter by `category`, `provider`, `status`, `min_score`, or paginate with `cursor` and `limit` | Free |
+| `deva_tools_inspect` | Read a discovered `slug`'s `input_schema`, pricing, defaults and caps | Free |
+| `deva_tools_estimate` | Estimate with `slug`, `params` and optional `maxTotalChargeUsd` | Free |
+| `deva_tools_run` | Execute with `slug`, `params` and optional `maxTotalChargeUsd` | Spends credits |
+| `deva_tools_get_run` | Retrieve status and output with `run_id` | Does not start another paid run |
+| `deva_balance_get` | Check the existing wallet and spending balance | Free |
+
+Discover first, inspect the exact returned slug, build `params` from its schema,
+and estimate before spending. The five generic tools are enabled by default in
+new configurations. An explicit `tool_policy.enabled_tools` list is respected;
+existing configurations must add `deva_tools_run` to that list.
+
+Paid runs still need positive local session and tool caps, for example:
+
+```json
+{
+  "tool_policy": {
+    "enabled_tools": ["deva_tools_discover", "deva_tools_inspect", "deva_tools_estimate", "deva_tools_run", "deva_tools_get_run"],
+    "spend_caps": {
+      "session_karma": 1000,
+      "default_tool_karma": 500,
+      "per_tool_karma": {}
+    }
+  }
+}
+```
+
+The REST field `maxTotalChargeUsd` is a credit ceiling (1 credit = $1 = 1000 karma).
+The server limits it to the remaining local budget. For generic runs, the entire
+local reservation counts against process spend caps, even if the run ultimately
+costs less; polling does not count it again. This conservative accounting keeps
+async run handles available before final billing is known. Caps reset on restart.
+
+`deva_tools_run` returns the API's `run_id` and `status`, plus polling instructions
+for nonterminal runs. Call `deva_tools_get_run` until the status is terminal.
+Synchronous responses include `output`; polled results can include `items`,
+`result_count`, and `credits_charged`. A run POST is never automatically retried,
+including after a timeout or network failure: its outcome may be unknown.
+
+For large results, supply `output_file` on either run or get-run:
+
+```json
+{ "run_id": "<returned run_id>", "output_file": "./results.json" }
+```
+
+The full API response is saved as JSON and only a small summary and absolute path
+are returned to the conversation. Paths are on the stdio server's filesystem;
+relative paths use its working directory. The parent directory must exist. Files
+are written with owner-only permissions and atomically replace an existing file.
+Polling can reuse the same path. If saving fails after a run starts, the response
+keeps the run ID and reports `output_file_error`; retrieve the result again with
+get-run instead of submitting another paid run.
+
+The tools use `/v1/agents/resources/discover`, `/inspect/{slug}`, `/estimate`,
+`/run/{slug}` and `/runs/{run_id}`. Slugs and IDs are URL-encoded. The live API
+requires the slug in the run URL; there is no bare `/run` route.
+
+The discovery/inspection/run loop and file-output approach were inspired by
+[Monid's MIT-licensed skill](https://github.com/monid-ai/plugins/blob/main/plugins/monid/skills/monid/SKILL.md).
+
+## Remote (no install)
+
+For clients supporting remote MCP with custom authorization headers, connect to:
+
+```text
+https://api.deva.me/v1/mcp
+Authorization: Bearer <DEVA_API_KEY>
+```
+
+Use the client's remote HTTP MCP connection settings and store the API key in its
+secret/header configuration. The hosted endpoint currently requires a Bearer Deva
+API key; OAuth is not available. No local npm installation is needed.
+
+The hosted server has its own tool inventory (`list_resources`, `inspect_resource`,
+`estimate_resource`, `run_resource`, `get_run`, `get_balance`, and account/payment
+tools); ask the client to list tools rather than assuming stdio names or arguments.
+The local `output_file` option and process spend caps described above belong to
+this stdio package.
+
 ## Requirements
 
 - Node.js 20.19+ (required by the dev toolchain: vitest 4 / vite 8)
@@ -55,7 +140,7 @@ Use `deva_cost_estimate` before execution and `deva_resources_catalog` for live 
 
 ## Local Tool Policy
 
-The server starts in a least-privilege mode. Free read tools are listed by default. Paid tools and tools that change account, storage, social, webhook, cron, marketplace, server, or messaging state are hidden from `list_tools` and rejected if called directly until they are explicitly enabled in `~/.deva-mcp/config.json`.
+The server starts in a least-privilege mode. Free read tools are listed by default. Except for the generic `deva_tools_run` tool (listed by default but still requiring spend caps), paid tools and tools that change account, storage, social, webhook, cron, marketplace, server, or messaging state are hidden from `list_tools` and rejected if called directly until they are explicitly enabled in `~/.deva-mcp/config.json`.
 
 Paid tools also require spend caps. Caps are tracked per MCP server process and reset when the process restarts. Paid calls reserve local budget before the upstream request, and returned `karma_cost` values settle against that reservation. If a successful paid response omits a parseable cost or returns a cost above the remaining cap, the MCP call fails with a local policy error. x402 payment challenges are checked against remaining caps before the challenge is returned to the client.
 

@@ -74,6 +74,12 @@ const TOOL_SECURITY: Record<string, ToolSecurityMetadata> = {
   deva_storage_file_delete: paidDestructive(),
   deva_storage_file_list: safe(),
 
+  deva_tools_discover: safe(),
+  deva_tools_inspect: safe(),
+  deva_tools_estimate: safe(),
+  deva_tools_run: paid(),
+  deva_tools_get_run: safe(),
+
   deva_balance_get: safe(),
   deva_cost_estimate: safe(),
   deva_resources_catalog: safe(),
@@ -129,7 +135,7 @@ const TOOL_SECURITY: Record<string, ToolSecurityMetadata> = {
 
 export function buildDefaultToolPolicyConfig(): ToolPolicyConfig {
   return {
-    enabled_tools: [],
+    enabled_tools: ["deva_tools_discover", "deva_tools_inspect", "deva_tools_estimate", "deva_tools_run", "deva_tools_get_run"],
     spend_caps: {
       session_karma: 0,
       default_tool_karma: 0,
@@ -178,7 +184,7 @@ export function normalizeToolPolicyConfig(value: unknown): ToolPolicyConfig {
   const spendCaps = asRecord(raw?.spend_caps);
 
   return {
-    enabled_tools: parseToolList(raw?.enabled_tools),
+    enabled_tools: raw?.enabled_tools === undefined ? buildDefaultToolPolicyConfig().enabled_tools : parseToolList(raw.enabled_tools),
     spend_caps: {
       session_karma: parseNonNegativeNumber(spendCaps?.session_karma),
       default_tool_karma: parseNonNegativeNumber(spendCaps?.default_tool_karma),
@@ -303,6 +309,13 @@ export class ToolPolicyEnforcer {
 
   settleSpend(reservation: ToolSpendReservation | undefined, payload: unknown): number | undefined {
     if (!reservation) {
+      return undefined;
+    }
+
+    // Rail runs may still be pending. Count the full reserved ceiling locally;
+    // polling must not charge the local budget again or hide the run handle.
+    if (reservation.toolName === "deva_tools_run") {
+      this.settleReservation(reservation, reservation.reservedKarma);
       return undefined;
     }
 
