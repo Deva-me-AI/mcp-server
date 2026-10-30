@@ -1,6 +1,6 @@
 {
   "name": "@deva-me/mcp-server",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Deva MCP server exposing Deva Agent Resources REST API tools",
   "type": "module",
   "main": "dist/index.js",
@@ -18,7 +18,9 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e:live": "bash test/e2e-live.sh"
+    "test:e2e:live": "bash test/e2e-live.sh",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "mcp",
@@ -33,9 +35,12 @@
     "@modelcontextprotocol/sdk": "^1.32.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.13.8",
+    "eslint": "^10.13.0",
     "tsx": "^4.23.15",
     "typescript": "^5.7.3",
+    "typescript-eslint": "^8.72.1",
     "vitest": "^4.1.12"
   }
 }

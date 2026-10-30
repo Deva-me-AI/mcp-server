@@ -4,6 +4,10 @@ import { DevaClient } from "../deva-client.js";
 export interface ToolContext {
   client: DevaClient;
   auth: AuthManager;
+  /** Maximum rail run charge allowed by the current local reservation. */
+  maxRunCredits?: number;
+  /** Called immediately before submitting a paid rail request. */
+  onRailRunSubmitted?: () => void;
 }
 
 export interface ToolDefinition {

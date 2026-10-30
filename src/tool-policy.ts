@@ -27,8 +27,6 @@ export interface ToolSpendReservation {
   state: "pending" | "released" | "settled";
 }
 
-const KARMA_PER_USDC = 1000;
-
 const paid = (): ToolSecurityMetadata => ({ paid: true });
 const destructive = (): ToolSecurityMetadata => ({ destructive: true });
 const paidDestructive = (): ToolSecurityMetadata => ({ paid: true, destructive: true });
@@ -73,6 +71,12 @@ const TOOL_SECURITY: Record<string, ToolSecurityMetadata> = {
   deva_storage_file_download: safe(),
   deva_storage_file_delete: paidDestructive(),
   deva_storage_file_list: safe(),
+
+  deva_tools_discover: safe(),
+  deva_tools_inspect: safe(),
+  deva_tools_estimate: safe(),
+  deva_tools_run: paidDestructive(),
+  deva_tools_get_run: destructive(),
 
   deva_balance_get: safe(),
   deva_cost_estimate: safe(),
@@ -129,7 +133,7 @@ const TOOL_SECURITY: Record<string, ToolSecurityMetadata> = {
 
 export function buildDefaultToolPolicyConfig(): ToolPolicyConfig {
   return {
-    enabled_tools: [],
+    enabled_tools: ["deva_tools_discover", "deva_tools_inspect", "deva_tools_estimate"],
     spend_caps: {
       session_karma: 0,
       default_tool_karma: 0,
@@ -178,7 +182,7 @@ export function normalizeToolPolicyConfig(value: unknown): ToolPolicyConfig {
   const spendCaps = asRecord(raw?.spend_caps);
 
   return {
-    enabled_tools: parseToolList(raw?.enabled_tools),
+    enabled_tools: raw?.enabled_tools === undefined ? buildDefaultToolPolicyConfig().enabled_tools : parseToolList(raw.enabled_tools),
     spend_caps: {
       session_karma: parseNonNegativeNumber(spendCaps?.session_karma),
       default_tool_karma: parseNonNegativeNumber(spendCaps?.default_tool_karma),
@@ -244,7 +248,7 @@ function challengeAmountToKarma(challenge: PaymentChallenge | undefined): number
     return undefined;
   }
 
-  return amount * KARMA_PER_USDC;
+  return creditsToKarma(amount);
 }
 
 export class ToolPolicyEnforcer {
@@ -278,7 +282,7 @@ export class ToolPolicyEnforcer {
     }
   }
 
-  reserveSpend(toolName: string): ToolSpendReservation | undefined {
+  reserveSpend(toolName: string, requestedKarma?: number): ToolSpendReservation | undefined {
     this.assertCanExecute(toolName);
 
     if (!getToolSecurityMetadata(toolName).paid) {
@@ -286,7 +290,10 @@ export class ToolPolicyEnforcer {
     }
 
     const remaining = this.getRemainingBudget(toolName);
-    const reservedKarma = Math.min(remaining.session, remaining.tool);
+    if (requestedKarma !== undefined && (!Number.isFinite(requestedKarma) || requestedKarma <= 0)) {
+      throw this.denied("Requested spend must be a positive finite amount.");
+    }
+    const reservedKarma = requestedKarma ?? Math.min(remaining.session, remaining.tool);
     this.assertBudgetAvailable(toolName, reservedKarma);
 
     const reservation: ToolSpendReservation = {
@@ -303,6 +310,13 @@ export class ToolPolicyEnforcer {
 
   settleSpend(reservation: ToolSpendReservation | undefined, payload: unknown): number | undefined {
     if (!reservation) {
+      return undefined;
+    }
+
+    // Rail runs may still be pending. Count the full reserved ceiling locally;
+    // polling must not charge the local budget again or hide the run handle.
+    if (reservation.toolName === "deva_tools_run") {
+      this.settleReservation(reservation, reservation.reservedKarma);
       return undefined;
     }
 
@@ -359,7 +373,7 @@ export class ToolPolicyEnforcer {
     return cost;
   }
 
-  assertPaymentChallengeWithinCaps(toolName: string, error: unknown): void {
+  assertPaymentChallengeWithinCaps(toolName: string, error: unknown, runCeilingKarma?: number): void {
     if (!(error instanceof DevaError)) {
       return;
     }
@@ -375,6 +389,9 @@ export class ToolPolicyEnforcer {
       throw this.denied(`Payment challenge for '${toolName}' did not include a parseable amount, so local spend caps cannot be enforced.`);
     }
 
+    if (runCeilingKarma !== undefined && challengeKarma > runCeilingKarma) {
+      throw this.denied(`Payment challenge exceeds the saved run ceiling for '${toolName}'.`);
+    }
     this.assertBudgetAvailable(toolName, challengeKarma);
   }
 
@@ -480,4 +497,10 @@ export class ToolPolicyEnforcer {
       message
     });
   }
+}
+
+/** Scale the decimal credit amount without a binary multiplication round-trip. */
+export function creditsToKarma(credits: number): number {
+  const [coefficient, exponent = "0"] = String(credits).split("e");
+  return Number(`${coefficient}e${Number(exponent) + 3}`);
 }

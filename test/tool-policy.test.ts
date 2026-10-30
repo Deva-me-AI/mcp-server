@@ -6,6 +6,7 @@ import {
   buildDefaultToolPolicyConfig,
   normalizeToolPolicyConfig
 } from "../src/tool-policy.js";
+import { createRailTools } from "../src/tools/rail.js";
 import { createAgentTools } from "../src/tools/agent.js";
 import { createAiTools } from "../src/tools/ai.js";
 import { createBalanceTools } from "../src/tools/balance.js";
@@ -24,6 +25,7 @@ import { createWalletTools } from "../src/tools/wallet.js";
 function createAllTools() {
   return [
     ...createAgentTools(),
+    ...createRailTools(),
     ...createSocialTools(),
     ...createAiTools(),
     ...createStorageTools(),
@@ -89,6 +91,23 @@ describe("ToolPolicyEnforcer", () => {
     policy.recordSpend("deva_ai_tts", { data: { karma_cost: 1 } });
 
     expect(() => policy.assertCanExecute("deva_ai_tts")).toThrow(/per-tool karma spend cap/);
+  });
+
+  it("reserves concurrent caller ceilings without oversubscribing session or tool caps", () => {
+    const policy = new ToolPolicyEnforcer(normalizeToolPolicyConfig({
+      enabled_tools: ["deva_tools_run"],
+      spend_caps: { session_karma: 500, default_tool_karma: 400 }
+    }));
+    const first = policy.reserveSpend("deva_tools_run", 100);
+    const second = policy.reserveSpend("deva_tools_run", 200);
+    expect(policy.getSessionKarmaPending()).toBe(300);
+    expect(() => policy.reserveSpend("deva_tools_run", 101)).toThrow(/per-tool/);
+    expect(() => policy.reserveSpend("deva_tools_run", 201)).toThrow(/per-session/);
+    policy.settleSpend(first, { status: "running" });
+    policy.releaseSpend(second);
+    expect(policy.getSessionKarmaSpent()).toBe(100);
+    expect(policy.getSessionKarmaPending()).toBe(0);
+    expect(policy.reserveSpend("deva_tools_run", 300)?.reservedKarma).toBe(300);
   });
 
   it("reserves pending paid spend before settlement", () => {

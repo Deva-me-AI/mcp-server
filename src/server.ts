@@ -5,10 +5,11 @@ import { AuthManager } from "./auth.js";
 import { withKarmaCost } from "./billing.js";
 import { RuntimeConfig, redactApiKey } from "./config.js";
 import { DevaClient } from "./deva-client.js";
-import { formatErrorForTool } from "./errors.js";
-import { ToolPolicyEnforcer, ToolSpendReservation, assertKnownToolPolicies } from "./tool-policy.js";
+import { DevaError, formatErrorForTool } from "./errors.js";
+import { ToolPolicyEnforcer, ToolSpendReservation, assertKnownToolPolicies, creditsToKarma } from "./tool-policy.js";
 import { createAgentTools } from "./tools/agent.js";
 import { createAiTools } from "./tools/ai.js";
+import { createRailTools, prepareRailRun } from "./tools/rail.js";
 import { createBalanceTools } from "./tools/balance.js";
 import { createCapabilityTools } from "./tools/capabilities.js";
 import { createCommsTools } from "./tools/comms.js";
@@ -47,6 +48,7 @@ export class DevaMcpServer {
       ...createAiTools(),
       ...createStorageTools(),
       ...createBalanceTools(),
+      ...createRailTools(),
       ...createMessagingTools(),
       ...createCommsTools(),
       ...createWalletTools(),
@@ -63,7 +65,7 @@ export class DevaMcpServer {
     this.mcpServer = new Server(
       {
         name: "@deva-me/mcp-server",
-        version: "0.1.2"
+        version: "0.2.0"
       },
       {
         capabilities: {
@@ -106,13 +108,20 @@ export class DevaMcpServer {
       }
 
       let spendReservation: ToolSpendReservation | undefined;
+      let railRunSubmitted = false;
 
       try {
-        spendReservation = this.toolPolicy.reserveSpend(toolName);
-        const args = (request.params.arguments ?? {}) as Record<string, unknown>;
+        this.toolPolicy.assertCanExecute(toolName);
+        let args = (request.params.arguments ?? {}) as Record<string, unknown>;
+        if (toolName === "deva_tools_run") args = await prepareRailRun(args, this.client);
+        spendReservation = this.toolPolicy.reserveSpend(
+          toolName, toolName === "deva_tools_run" ? creditsToKarma(args.maxTotalChargeUsd as number) : undefined
+        );
         const context: ToolContext = {
           client: this.client,
-          auth: this.auth
+          auth: this.auth,
+          onRailRunSubmitted: () => { railRunSubmitted = true; },
+          maxRunCredits: toolName === "deva_tools_run" && spendReservation ? args.maxTotalChargeUsd as number : undefined
         };
 
         const payload = await tool.execute(args, context);
@@ -129,10 +138,16 @@ export class DevaMcpServer {
           ]
         };
       } catch (error) {
-        this.toolPolicy.releaseSpend(spendReservation);
+        // Client rejections did not start a run; release before checking a payment
+        // challenge. Timeouts (including HTTP 408), network and server failures
+        // are ambiguous, so retain the ceiling for a potentially executing run.
+        const rejected = error instanceof DevaError && error.status !== undefined &&
+          error.status >= 400 && error.status < 500 && error.status !== 408;
+        if (railRunSubmitted && !rejected) this.toolPolicy.settleSpend(spendReservation, undefined);
+        else this.toolPolicy.releaseSpend(spendReservation);
         let message: string;
         try {
-          this.toolPolicy.assertPaymentChallengeWithinCaps(toolName, error);
+          this.toolPolicy.assertPaymentChallengeWithinCaps(toolName, error, spendReservation?.reservedKarma);
           message = formatErrorForTool(error);
         } catch (policyError) {
           message = formatErrorForTool(policyError);
