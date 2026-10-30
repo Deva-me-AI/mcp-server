@@ -16,9 +16,10 @@ Use one provider-independent loop for every tool in the catalog:
 | `deva_balance_get` | Check the existing wallet and spending balance | Free |
 
 Discover first, inspect the exact returned slug, build `params` from its schema,
-and estimate before spending. The five generic tools are enabled by default in
-new configurations. An explicit `tool_policy.enabled_tools` list is respected;
-existing configurations must add `deva_tools_run` to that list.
+and estimate before spending. Discovery, inspection, and estimation are available by default.
+Both new and existing configurations must explicitly add `deva_tools_run` and
+`deva_tools_get_run` to `tool_policy.enabled_tools` to allow execution and
+file-capable polling. Spend caps alone do not enable these tools.
 
 Paid runs still need positive local session and tool caps, for example:
 
@@ -59,14 +60,15 @@ are returned to the conversation. Paths are on the stdio server's filesystem;
 relative paths use its working directory. The parent directory must exist. Files
 are written with owner-only permissions and atomically replace an existing file.
 Both file-capable tools are classified as destructive and must be present in
-`tool_policy.enabled_tools`; an explicit empty list disables them. The default
-configuration enables them, so only use trusted output paths. Staging uses a
+`tool_policy.enabled_tools`; both are disabled by default. Enable them only
+when local file replacement is intended, and use trusted output paths. Staging uses a
 private directory and an exclusively opened file handle. Polling can reuse the
 same path. If saving fails after a run starts, the response
 keeps the run ID and reports `output_file_error`; retrieve the result again with
-get-run instead of submitting another paid run. A failed submitted run retains
-its reserved ceiling because it may still be executing upstream; validation or
-staging failures before submission release the reservation.
+get-run instead of submitting another paid run. Network failures, timeouts (including HTTP 408), and server errors retain
+the submitted run's reserved ceiling because it may still be executing upstream.
+Other HTTP 4xx rejections, including payment challenges, release the reservation
+before payment-cap validation, as do validation or staging failures before submission.
 
 The tools use `/v1/agents/resources/discover`, `/inspect/{slug}`, `/estimate`,
 `/run/{slug}` and `/runs/{run_id}`. Slugs and IDs are URL-encoded. The live API
@@ -147,7 +149,7 @@ Use `deva_cost_estimate` before execution and `deva_resources_catalog` for live 
 
 ## Local Tool Policy
 
-The server starts in a least-privilege mode. Free read tools are listed by default. Except for the generic `deva_tools_run` tool (listed by default but still requiring spend caps), paid tools and tools that change account, storage, social, webhook, cron, marketplace, server, or messaging state are hidden from `list_tools` and rejected if called directly until they are explicitly enabled in `~/.deva-mcp/config.json`.
+The server starts in a least-privilege mode. Free read tools are listed by default. Paid tools and tools that can replace local files or change account, storage, social, webhook, cron, marketplace, server, or messaging state are hidden from `list_tools` and rejected if called directly until they are explicitly enabled in `~/.deva-mcp/config.json`.
 
 Paid tools also require spend caps. Caps are tracked per MCP server process and reset when the process restarts. Paid calls reserve local budget before the upstream request, and returned `karma_cost` values settle against that reservation. If a successful paid response omits a parseable cost or returns a cost above the remaining cap, the MCP call fails with a local policy error. x402 payment challenges are checked against remaining caps before the challenge is returned to the client.
 

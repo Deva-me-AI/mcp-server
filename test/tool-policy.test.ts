@@ -93,6 +93,7 @@ describe("ToolPolicyEnforcer", () => {
 
   it("reserves concurrent caller ceilings without oversubscribing session or tool caps", () => {
     const policy = new ToolPolicyEnforcer(normalizeToolPolicyConfig({
+      enabled_tools: ["deva_tools_run"],
       spend_caps: { session_karma: 500, default_tool_karma: 400 }
     }));
     const first = policy.reserveSpend("deva_tools_run", 100);
