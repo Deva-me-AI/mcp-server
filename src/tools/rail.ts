@@ -1,6 +1,6 @@
-import { writeFile, rename, unlink } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { lstat, mkdtemp, open, rename, rm } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import type { DevaClient } from "../deva-client.js";
 import { asString, ToolDefinition } from "./types.js";
 
@@ -40,14 +40,18 @@ export async function prepareRailRun(args: Record<string, unknown>, client: Deva
 
 async function result(args: Record<string, unknown>, request: () => Promise<Record<string, unknown>>): Promise<unknown> {
   const path = args.output_file === undefined ? undefined : resolve(asString(args.output_file, "output_file"));
-  const temporary = path === undefined ? undefined : `${path}.${randomUUID()}.tmp`;
-  // Check the destination before a paid request, and replace atomically after it.
-  if (temporary) await writeFile(temporary, "", { flag: "wx", mode: 0o600 });
+  // A private directory prevents other users from replacing staging entries.
+  // Keep the exclusively created handle open across the request: never reopen
+  // a pathname that could have been substituted while awaiting the response.
+  const staging = path === undefined ? undefined : await mkdtemp(join(dirname(path), ".deva-output-"));
+  const temporary = staging === undefined ? undefined : join(staging, "response.json");
+  let file: FileHandle | undefined;
   try {
+    if (temporary) file = await open(temporary, "wx", 0o600);
     const payload = await request();
     const polling = !["succeeded", "failed", "completed", "cancelled", "canceled"].includes(String(payload.status));
     const guidance = polling ? { next_action: "Poll deva_tools_get_run with run_id until terminal. Do not submit the run again." } : {};
-    if (!path || !temporary) return { ...payload, ...guidance };
+    if (!path || !temporary || !file) return { ...payload, ...guidance };
     const summary = {
       run_id: payload.run_id,
       status: payload.status,
@@ -57,7 +61,12 @@ async function result(args: Record<string, unknown>, request: () => Promise<Reco
       ...guidance
     };
     try {
-      await writeFile(temporary, JSON.stringify(payload, null, 2), { mode: 0o600 });
+      await file.writeFile(JSON.stringify(payload, null, 2));
+      const original = await file.stat();
+      const staged = await lstat(temporary);
+      if (!staged.isFile() || staged.dev !== original.dev || staged.ino !== original.ino) {
+        throw new Error("Staging file was replaced");
+      }
       await rename(temporary, path);
       return { ...summary, summary: "Full response written to output_file.", output_file: path };
     } catch {
@@ -65,7 +74,8 @@ async function result(args: Record<string, unknown>, request: () => Promise<Reco
       return { ...summary, output_file: path, output_file_error: "Could not save the response. Retrieve it with deva_tools_get_run; do not rerun the paid tool." };
     }
   } finally {
-    if (temporary) await unlink(temporary).catch(() => {});
+    await file?.close().catch(() => {});
+    if (staging) await rm(staging, { recursive: true, force: true }).catch(() => {});
   }
 }
 
@@ -116,19 +126,22 @@ export function createRailTools(): ToolDefinition[] {
       name: "deva_tools_run",
       description: "Run a discovered tool. Spends credits; inspect and estimate first. Returns run_id and status. For async runs poll deva_tools_get_run until terminal. Never automatically retry a run. Use output_file for large output. Local spend caps must be configured.",
       inputSchema: { type: "object", properties: { ...requestProperties, output_file: outputFile }, required: ["slug"], additionalProperties: false },
-      async execute(args, { client, maxRunCredits }) {
+      async execute(args, { client, maxRunCredits, onRailRunSubmitted }) {
         const payload = body(args);
         const { slug, ...input } = payload;
         if (maxRunCredits !== undefined) {
           input.maxTotalChargeUsd = Math.min((input.maxTotalChargeUsd as number | undefined) ?? maxRunCredits, maxRunCredits);
           if ((input.maxTotalChargeUsd as number) < 0.001) throw new Error("Remaining local budget is below the minimum run cap");
         }
-        return result(args, () => client.request({ method: "POST", path: `${ROOT}/run/${encodeURIComponent(String(slug))}`, body: input, maxRetries: 0 }));
+        return result(args, () => {
+          onRailRunSubmitted?.();
+          return client.request({ method: "POST", path: `${ROOT}/run/${encodeURIComponent(String(slug))}`, body: input, maxRetries: 0 });
+        });
       }
     },
     {
       name: "deva_tools_get_run",
-      description: "Get a run's status and output without starting another paid run. Poll async runs with run_id until terminal. Use output_file to keep large results out of context.",
+      description: "Get a run's status and output without starting another paid run. Poll async runs with run_id until terminal. Use output_file to keep large results out of context. Can overwrite local files; requires local policy enablement.",
       inputSchema: { type: "object", properties: { run_id: { type: "string", minLength: 1 }, output_file: outputFile }, required: ["run_id"], additionalProperties: false },
       async execute(args, { client }) {
         const id = asString(args.run_id, "run_id");

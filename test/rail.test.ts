@@ -1,11 +1,11 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DevaClient } from "../src/deva-client.js";
 import { RuntimeConfig } from "../src/config.js";
 import { DevaMcpServer } from "../src/server.js";
-import { buildDefaultToolPolicyConfig, normalizeToolPolicyConfig, ToolPolicyEnforcer } from "../src/tool-policy.js";
+import { buildDefaultToolPolicyConfig, normalizeToolPolicyConfig, getToolSecurityMetadata, ToolPolicyEnforcer } from "../src/tool-policy.js";
 import { createRailTools } from "../src/tools/rail.js";
 
 type CallHandler = (request: { method: string; params: { name: string; arguments: Record<string, unknown> } }) => Promise<{ isError?: boolean; content: { text: string }[] }>;
@@ -30,6 +30,90 @@ function harness(payload: unknown = {}, status = 200, key: string | undefined = 
 }
 
 describe("generic tool rail", () => {
+  it.each([new Error("network failure"), Object.assign(new Error("timeout"), { name: "AbortError" })])("retains the run ceiling after an ambiguous failure: %s", async error => {
+    const toolPolicy = { ...buildDefaultToolPolicyConfig(), spend_caps: { session_karma: 100, default_tool_karma: 100, per_tool_karma: {} } };
+    const fetch = vi.fn().mockRejectedValue(error);
+    vi.stubGlobal("fetch", fetch);
+    const server = new DevaMcpServer({ ...config, apiKey: "test", toolPolicy });
+    const internals = server as unknown as { mcpServer: { _requestHandlers: Map<string, CallHandler> }; toolPolicy: ToolPolicyEnforcer };
+    const call = internals.mcpServer._requestHandlers.get("tools/call")!;
+    const request = { method: "tools/call", params: { name: "deva_tools_run", arguments: { slug: "x", maxTotalChargeUsd: 0.1 } } };
+    expect((await call(request)).isError).toBe(true);
+    expect(internals.toolPolicy.getSessionKarmaSpent()).toBe(100);
+    expect(internals.toolPolicy.getSessionKarmaPending()).toBe(0);
+    expect((await call(request)).isError).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases a run reservation when output validation fails before submission", async () => {
+    const toolPolicy = { ...buildDefaultToolPolicyConfig(), spend_caps: { session_karma: 100, default_tool_karma: 100, per_tool_karma: {} } };
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ run_id: "r1", status: "running" })));
+    vi.stubGlobal("fetch", fetch);
+    const server = new DevaMcpServer({ ...config, apiKey: "test", toolPolicy });
+    const internals = server as unknown as { mcpServer: { _requestHandlers: Map<string, CallHandler> }; toolPolicy: ToolPolicyEnforcer };
+    const call = internals.mcpServer._requestHandlers.get("tools/call")!;
+    const args = { slug: "x", maxTotalChargeUsd: 0.1 };
+    const failed = await call({ method: "tools/call", params: { name: "deva_tools_run", arguments: { ...args, output_file: "" } } });
+    expect(failed.isError).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(internals.toolPolicy.getSessionKarmaSpent()).toBe(0);
+    expect(internals.toolPolicy.getSessionKarmaPending()).toBe(0);
+    expect((await call({ method: "tools/call", params: { name: "deva_tools_run", arguments: args } })).isError).not.toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires destructive-tool authorization for file-capable polling", async () => {
+    for (const name of ["deva_tools_run", "deva_tools_get_run"]) {
+      expect(getToolSecurityMetadata(name).destructive).toBe(true);
+    }
+    const output_file = await destination();
+    await writeFile(output_file, "keep me");
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const server = new DevaMcpServer({ ...config, apiKey: "test", toolPolicy: normalizeToolPolicyConfig({ enabled_tools: [] }) });
+    const internals = server as unknown as { mcpServer: { _requestHandlers: Map<string, CallHandler> } };
+    const response = await internals.mcpServer._requestHandlers.get("tools/call")!({ method: "tools/call", params: { name: "deva_tools_get_run", arguments: { run_id: "r1", output_file } } });
+    expect(response.isError).toBe(true);
+    expect(await readFile(output_file, "utf8")).toBe("keep me");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not follow a staging symlink substituted while awaiting the response", async () => {
+    const output_file = await destination();
+    const victim = join(dirname(output_file), "victim");
+    await writeFile(victim, "keep me");
+    const { fetch, call } = harness();
+    let privateMode: number | undefined;
+    fetch.mockImplementation(async () => {
+      const entries = await readdir(dirname(output_file));
+      const staging = entries.find(name => name !== "victim")!;
+      let temporary = join(dirname(output_file), staging);
+      if ((await stat(temporary)).isDirectory()) {
+        privateMode = (await stat(temporary)).mode & 0o777;
+        temporary = join(temporary, (await readdir(temporary))[0]);
+      }
+      await unlink(temporary);
+      await symlink(victim, temporary);
+      return new Response(JSON.stringify({ run_id: "r1", status: "succeeded", output: "private output" }));
+    });
+    expect(await call("deva_tools_get_run", { run_id: "r1", output_file })).toMatchObject({
+      run_id: "r1", output_file_error: expect.stringContaining("do not rerun")
+    });
+    expect(await readFile(victim, "utf8")).toBe("keep me");
+    expect(privateMode).toBe(0o700);
+    expect(await readdir(dirname(output_file))).toEqual(["victim"]);
+  });
+
+  it("documents every registered tool exactly once in the inventory", async () => {
+    const server = new DevaMcpServer({ ...config, toolPolicy: buildDefaultToolPolicyConfig() });
+    const tools = (server as unknown as { tools: { name: string }[] }).tools;
+    const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+    expect(readme).toContain(`## Tool Inventory (${tools.length})`);
+    const inventory = readme.split("## Tool Inventory")[1];
+    const names = [...inventory.matchAll(/^- `(deva_\w+)`/gm)].map(match => match[1]);
+    expect(names.sort()).toEqual(tools.map(tool => tool.name).sort());
+  });
+
   it("discovers without auth and preserves pagination and generic provider filters", async () => {
     const payload = { items: [{ slug: "future/tool" }], total: 2, next_cursor: "next" };
     const { fetch, call } = harness(payload, 200, undefined);

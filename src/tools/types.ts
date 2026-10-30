@@ -6,6 +6,8 @@ export interface ToolContext {
   auth: AuthManager;
   /** Maximum rail run charge allowed by the current local reservation. */
   maxRunCredits?: number;
+  /** Called immediately before submitting a paid rail request. */
+  onRailRunSubmitted?: () => void;
 }
 
 export interface ToolDefinition {

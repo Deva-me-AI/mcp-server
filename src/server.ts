@@ -108,6 +108,7 @@ export class DevaMcpServer {
       }
 
       let spendReservation: ToolSpendReservation | undefined;
+      let railRunSubmitted = false;
 
       try {
         this.toolPolicy.assertCanExecute(toolName);
@@ -119,6 +120,7 @@ export class DevaMcpServer {
         const context: ToolContext = {
           client: this.client,
           auth: this.auth,
+          onRailRunSubmitted: () => { railRunSubmitted = true; },
           maxRunCredits: toolName === "deva_tools_run" && spendReservation ? spendReservation.reservedKarma / 1000 : undefined
         };
 
@@ -136,7 +138,9 @@ export class DevaMcpServer {
           ]
         };
       } catch (error) {
-        this.toolPolicy.releaseSpend(spendReservation);
+        // A submitted run may execute even when its response never arrives.
+        if (railRunSubmitted) this.toolPolicy.settleSpend(spendReservation, undefined);
+        else this.toolPolicy.releaseSpend(spendReservation);
         let message: string;
         try {
           this.toolPolicy.assertPaymentChallengeWithinCaps(toolName, error);

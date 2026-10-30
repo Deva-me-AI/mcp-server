@@ -58,9 +58,15 @@ The full API response is saved as JSON and only a small summary and absolute pat
 are returned to the conversation. Paths are on the stdio server's filesystem;
 relative paths use its working directory. The parent directory must exist. Files
 are written with owner-only permissions and atomically replace an existing file.
-Polling can reuse the same path. If saving fails after a run starts, the response
+Both file-capable tools are classified as destructive and must be present in
+`tool_policy.enabled_tools`; an explicit empty list disables them. The default
+configuration enables them, so only use trusted output paths. Staging uses a
+private directory and an exclusively opened file handle. Polling can reuse the
+same path. If saving fails after a run starts, the response
 keeps the run ID and reports `output_file_error`; retrieve the result again with
-get-run instead of submitting another paid run.
+get-run instead of submitting another paid run. A failed submitted run retains
+its reserved ceiling because it may still be executing upstream; validation or
+staging failures before submission release the reservation.
 
 The tools use `/v1/agents/resources/discover`, `/inspect/{slug}`, `/estimate`,
 `/run/{slug}` and `/runs/{run_id}`. Slugs and IDs are URL-encoded. The live API
@@ -263,7 +269,7 @@ args = ["-y", "@deva-me/mcp-server"]
 DEVA_API_KEY = "deva_xxx"
 ```
 
-## Tool Inventory (78)
+## Tool Inventory (83)
 
 Generated from `src/tools/*.ts`; paths are exactly what each tool calls.
 
@@ -313,6 +319,14 @@ Generated from `src/tools/*.ts`; paths are exactly what each tool calls.
 - `deva_storage_file_download` -> `GET /v1/agents/files/{path}`
 - `deva_storage_file_delete` -> `DELETE /v1/agents/files/{path}`
 - `deva_storage_file_list` -> `GET /v1/agents/files`
+
+### Generic tools (5)
+
+- `deva_tools_discover` -> `GET /v1/agents/resources/discover`
+- `deva_tools_inspect` -> `GET /v1/agents/resources/inspect/{slug}`
+- `deva_tools_estimate` -> `POST /v1/agents/resources/estimate`
+- `deva_tools_run` -> `POST /v1/agents/resources/run/{slug}`
+- `deva_tools_get_run` -> `GET /v1/agents/resources/runs/{run_id}`
 
 ### Balance (3)
 
