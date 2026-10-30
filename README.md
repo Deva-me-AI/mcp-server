@@ -413,7 +413,7 @@ Config shape:
     "timeout_ms": 30000
   },
   "tool_policy": {
-    "enabled_tools": [],
+    "enabled_tools": ["deva_tools_discover", "deva_tools_inspect", "deva_tools_estimate", "deva_tools_run", "deva_tools_get_run"],
     "spend_caps": {
       "session_karma": 0,
       "default_tool_karma": 0,
