@@ -11,6 +11,8 @@ export interface RequestOptions {
   timeoutMs?: number;
   /** Retries after timeouts/5xx/network errors. Set to 0 for non-idempotent, billed calls. */
   maxRetries?: number;
+  /** Called after local request preparation, immediately before fetch dispatch. */
+  onDispatch?: () => void;
 }
 
 export interface HttpClient {
@@ -144,13 +146,15 @@ export class DevaClient {
           headers["authorization"] = `Bearer ${apiKey}`;
         }
 
-        const response = await this.httpClient.fetch(url, {
+        const init: RequestInit = {
           method: options.method,
           headers,
           body:
             options.body === undefined ? undefined : isMultipart ? (options.body as FormData) : JSON.stringify(options.body),
           signal: controller.signal
-        });
+        };
+        options.onDispatch?.();
+        const response = await this.httpClient.fetch(url, init);
 
         const payload = await parseBody(response);
 

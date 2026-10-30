@@ -27,8 +27,6 @@ export interface ToolSpendReservation {
   state: "pending" | "released" | "settled";
 }
 
-const KARMA_PER_USDC = 1000;
-
 const paid = (): ToolSecurityMetadata => ({ paid: true });
 const destructive = (): ToolSecurityMetadata => ({ destructive: true });
 const paidDestructive = (): ToolSecurityMetadata => ({ paid: true, destructive: true });
@@ -250,7 +248,7 @@ function challengeAmountToKarma(challenge: PaymentChallenge | undefined): number
     return undefined;
   }
 
-  return amount * KARMA_PER_USDC;
+  return creditsToKarma(amount);
 }
 
 export class ToolPolicyEnforcer {
@@ -375,7 +373,7 @@ export class ToolPolicyEnforcer {
     return cost;
   }
 
-  assertPaymentChallengeWithinCaps(toolName: string, error: unknown): void {
+  assertPaymentChallengeWithinCaps(toolName: string, error: unknown, runCeilingKarma?: number): void {
     if (!(error instanceof DevaError)) {
       return;
     }
@@ -391,6 +389,9 @@ export class ToolPolicyEnforcer {
       throw this.denied(`Payment challenge for '${toolName}' did not include a parseable amount, so local spend caps cannot be enforced.`);
     }
 
+    if (runCeilingKarma !== undefined && challengeKarma > runCeilingKarma) {
+      throw this.denied(`Payment challenge exceeds the saved run ceiling for '${toolName}'.`);
+    }
     this.assertBudgetAvailable(toolName, challengeKarma);
   }
 
@@ -496,4 +497,10 @@ export class ToolPolicyEnforcer {
       message
     });
   }
+}
+
+/** Scale the decimal credit amount without a binary multiplication round-trip. */
+export function creditsToKarma(credits: number): number {
+  const [coefficient, exponent = "0"] = String(credits).split("e");
+  return Number(`${coefficient}e${Number(exponent) + 3}`);
 }

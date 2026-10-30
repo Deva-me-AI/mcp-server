@@ -6,6 +6,7 @@ import {
   buildDefaultToolPolicyConfig,
   normalizeToolPolicyConfig
 } from "../src/tool-policy.js";
+import { createRailTools } from "../src/tools/rail.js";
 import { createAgentTools } from "../src/tools/agent.js";
 import { createAiTools } from "../src/tools/ai.js";
 import { createBalanceTools } from "../src/tools/balance.js";
@@ -24,6 +25,7 @@ import { createWalletTools } from "../src/tools/wallet.js";
 function createAllTools() {
   return [
     ...createAgentTools(),
+    ...createRailTools(),
     ...createSocialTools(),
     ...createAiTools(),
     ...createStorageTools(),

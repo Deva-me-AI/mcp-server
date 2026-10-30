@@ -1,11 +1,11 @@
-import { lstat, mkdtemp, open, rename, rm } from "node:fs/promises";
+import { link, lstat, mkdtemp, open, rm } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { DevaClient } from "../deva-client.js";
 import { asString, ToolDefinition } from "./types.js";
 
 const ROOT = "/v1/agents/resources";
-const outputFile = { type: "string", minLength: 1, description: "Write the full JSON response to this local path; return only a summary and path. Relative paths use the server working directory. Replaces an existing file." };
+const outputFile = { type: "string", minLength: 1, description: "Write the full JSON response to this local path; return only a summary and path. Relative paths use the server working directory. Refuses to replace an existing file; use a new path for each saved response." };
 const requestProperties = {
   slug: { type: "string", minLength: 1, description: "Exact slug from discover." },
   params: { type: "object", additionalProperties: true, description: "Input matching inspect's input_schema." },
@@ -48,8 +48,11 @@ async function result(args: Record<string, unknown>, request: () => Promise<Reco
   let file: FileHandle | undefined;
   try {
     if (temporary) file = await open(temporary, "wx", 0o600);
-    const payload = await request();
-    const polling = !["succeeded", "failed", "completed", "cancelled", "canceled"].includes(String(payload.status));
+    const raw = await request();
+    const payload = raw !== null && typeof raw === "object" && !Array.isArray(raw) ? raw : {
+      response: raw, response_warning: "Unexpected run response. Do not submit the run again; check run history before taking further action."
+    };
+    const polling = ["queued", "pending", "running", "in_progress"].includes(String(payload.status));
     const guidance = polling ? { next_action: "Poll deva_tools_get_run with run_id until terminal. Do not submit the run again." } : {};
     if (!path || !temporary || !file) return { ...payload, ...guidance };
     const summary = {
@@ -67,7 +70,8 @@ async function result(args: Record<string, unknown>, request: () => Promise<Reco
       if (!staged.isFile() || staged.dev !== original.dev || staged.ino !== original.ino) {
         throw new Error("Staging file was replaced");
       }
-      await rename(temporary, path);
+      // Hard-link publication is atomic and fails if any destination entry exists.
+      await link(temporary, path);
       return { ...summary, summary: "Full response written to output_file.", output_file: path };
     } catch {
       // Keep the run handle visible if a disk fails after a paid run has started.
@@ -134,14 +138,13 @@ export function createRailTools(): ToolDefinition[] {
           if ((input.maxTotalChargeUsd as number) < 0.001) throw new Error("Remaining local budget is below the minimum run cap");
         }
         return result(args, () => {
-          onRailRunSubmitted?.();
-          return client.request({ method: "POST", path: `${ROOT}/run/${encodeURIComponent(String(slug))}`, body: input, maxRetries: 0 });
+          return client.request({ method: "POST", path: `${ROOT}/run/${encodeURIComponent(String(slug))}`, body: input, maxRetries: 0, onDispatch: onRailRunSubmitted });
         });
       }
     },
     {
       name: "deva_tools_get_run",
-      description: "Get a run's status and output without starting another paid run. Poll async runs with run_id until terminal. Use output_file to keep large results out of context. Can overwrite local files; requires local policy enablement.",
+      description: "Get a run's status and output without starting another paid run. Poll async runs with run_id until terminal. Use output_file to keep large results out of context. Can write local files; requires local policy enablement.",
       inputSchema: { type: "object", properties: { run_id: { type: "string", minLength: 1 }, output_file: outputFile }, required: ["run_id"], additionalProperties: false },
       async execute(args, { client }) {
         const id = asString(args.run_id, "run_id");

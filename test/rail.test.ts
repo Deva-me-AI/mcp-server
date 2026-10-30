@@ -30,6 +30,80 @@ function harness(payload: unknown = {}, status = 200, key: string | undefined = 
 }
 
 describe("generic tool rail", () => {
+  function serverHarness(cap = 500, apiKey: string | undefined = "test") {
+    const fetch = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ run_id: "r1", status: "running" })));
+    vi.stubGlobal("fetch", fetch);
+    const server = new DevaMcpServer({ ...config, apiKey, toolPolicy: normalizeToolPolicyConfig({ enabled_tools: ["deva_tools_run"], spend_caps: { session_karma: cap, default_tool_karma: cap } }) });
+    const internals = server as unknown as { mcpServer: { _requestHandlers: Map<string, CallHandler> }; toolPolicy: ToolPolicyEnforcer };
+    const call = (args: Record<string, unknown>) => internals.mcpServer._requestHandlers.get("tools/call")!({ method: "tools/call", params: { name: "deva_tools_run", arguments: { slug: "x", maxTotalChargeUsd: 0.1, ...args } } });
+    return { fetch, call, policy: internals.toolPolicy };
+  }
+
+  it("rejects payment challenges above the saved run ceiling", async () => {
+    const { fetch, call, policy } = serverHarness();
+    fetch.mockResolvedValue(new Response(JSON.stringify({ payment_challenge: { amount: "0.5" } }), { status: 402 }));
+    const response = await call({});
+    expect(response.content[0].text).toContain("run ceiling");
+    expect(response.content[0].text).not.toContain('"payment_challenge"');
+    expect(policy.getSessionKarmaSpent()).toBe(0);
+    expect(policy.getSessionKarmaPending()).toBe(0);
+  });
+
+  it.each(["missing key", "invalid slug", "unserializable body"])("releases the reservation before dispatch: %s", async failure => {
+    const { fetch, call, policy } = serverHarness(100, failure === "missing key" ? "" : "test");
+    const args = failure === "invalid slug" ? { slug: "\ud800" } : failure === "unserializable body" ? { params: { value: 1n } } : {};
+    expect((await call(args)).isError).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(policy.getSessionKarmaSpent()).toBe(0);
+    expect(policy.getSessionKarmaPending()).toBe(0);
+  });
+
+  it("accepts a payment challenge exactly at a fractional credit ceiling", async () => {
+    const { fetch, call } = serverHarness(7);
+    fetch.mockResolvedValue(new Response(JSON.stringify({ payment_challenge: { amount: "0.007" } }), { status: 402 }));
+    const response = await call({ maxTotalChargeUsd: 0.007 });
+    expect(JSON.parse(response.content[0].text)).toMatchObject({ error: "PAYMENT_REQUIRED", payment_challenge: { amount: "0.007" } });
+  });
+
+  it("reserves exactly seven karma for a 0.007 credit ceiling", async () => {
+    const { fetch, call, policy } = serverHarness(7);
+    expect((await call({ maxTotalChargeUsd: 0.007 })).isError).not.toBe(true);
+    expect(policy.getSessionKarmaSpent()).toBe(7);
+    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body)).maxTotalChargeUsd).toBe(0.007);
+  });
+
+  it.each([undefined, "error", "timed_out", "expired", "future_status"])("does not recommend polling an unknown or terminal status: %s", async status => {
+    const { call } = harness({ output: "answer", ...(status ? { status } : {}) });
+    expect(await call("deva_tools_run", { slug: "x" })).not.toHaveProperty("next_action");
+  });
+
+  it.each([null, 42, "unexpected", []])("preserves malformed run responses without inviting resubmission: %j", async payload => {
+    const { call } = harness(payload);
+    expect(await call("deva_tools_run", { slug: "x" })).toMatchObject({ response: payload, response_warning: expect.stringContaining("Do not submit") });
+  });
+
+  it("never replaces an existing output file", async () => {
+    const output_file = await destination();
+    await writeFile(output_file, "keep me");
+    const { call } = harness({ run_id: "r1", status: "succeeded" });
+    expect(await call("deva_tools_get_run", { run_id: "r1", output_file })).toHaveProperty("output_file_error");
+    expect(await readFile(output_file, "utf8")).toBe("keep me");
+  });
+
+  it("README config shape matches the actual default policy", async () => {
+    const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+    const example = JSON.parse(readme.split("Config shape:")[1].split("```json")[1].split("```")[0]);
+    expect(example.tool_policy).toEqual(buildDefaultToolPolicyConfig());
+  });
+
+  it.skipIf(!process.env.PR_BODY_FILE)("PR description accurately reports default rail visibility", async () => {
+    const body = await readFile(process.env.PR_BODY_FILE!, "utf8");
+    expect(body).not.toMatch(/all five (?:are listed by default|default tools listed)/i);
+    expect(body).toContain("Three rail tools are listed by default");
+    const policy = new ToolPolicyEnforcer(buildDefaultToolPolicyConfig());
+    expect(createRailTools().filter(tool => policy.canList(tool.name)).map(tool => tool.name)).toEqual(["deva_tools_discover", "deva_tools_inspect", "deva_tools_estimate"]);
+  });
+
   it.each([new Error("network failure"), Object.assign(new Error("timeout"), { name: "AbortError" })])("retains the run ceiling after an ambiguous failure: %s", async error => {
     const toolPolicy = { ...buildDefaultToolPolicyConfig(), enabled_tools: ["deva_tools_run", "deva_tools_get_run"], spend_caps: { session_karma: 100, default_tool_karma: 100, per_tool_karma: {} } };
     const fetch = vi.fn().mockRejectedValue(error);
@@ -167,8 +241,8 @@ describe("generic tool rail", () => {
     expect(response).not.toHaveProperty("next_action");
     expect((await stat(output_file)).mode & 0o777).toBe(0o600);
     expect(String(fetch.mock.calls[0][1]?.body)).not.toContain("output_file");
-    // Polls can atomically replace the same file.
-    await call(name, { slug: "future/tool", run_id: "r1", output_file });
+    // Repeated saves must preserve the existing file.
+    expect(await call(name, { slug: "future/tool", run_id: "r1", output_file })).toHaveProperty("output_file_error");
   });
 
   it("returns synchronous output inline and polls encoded run IDs", async () => {

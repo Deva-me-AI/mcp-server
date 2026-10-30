@@ -58,12 +58,12 @@ For large results, supply `output_file` on either run or get-run:
 The full API response is saved as JSON and only a small summary and absolute path
 are returned to the conversation. Paths are on the stdio server's filesystem;
 relative paths use its working directory. The parent directory must exist. Files
-are written with owner-only permissions and atomically replace an existing file.
+are written with owner-only permissions and published atomically only to a new path.
+Existing files are never replaced; use a new output path for each poll.
 Both file-capable tools are classified as destructive and must be present in
 `tool_policy.enabled_tools`; both are disabled by default. Enable them only
-when local file replacement is intended, and use trusted output paths. Staging uses a
-private directory and an exclusively opened file handle. Polling can reuse the
-same path. If saving fails after a run starts, the response
+when local file output is intended, and use trusted output paths. Staging uses a
+private directory and an exclusively opened file handle. If saving fails after a run starts, the response
 keeps the run ID and reports `output_file_error`; retrieve the result again with
 get-run instead of submitting another paid run. Network failures, timeouts (including HTTP 408), and server errors retain
 the submitted run's reserved ceiling because it may still be executing upstream.
@@ -151,7 +151,7 @@ Use `deva_cost_estimate` before execution and `deva_resources_catalog` for live 
 
 The server starts in a least-privilege mode. Free read tools are listed by default. Paid tools and tools that can replace local files or change account, storage, social, webhook, cron, marketplace, server, or messaging state are hidden from `list_tools` and rejected if called directly until they are explicitly enabled in `~/.deva-mcp/config.json`.
 
-Paid tools also require spend caps. Caps are tracked per MCP server process and reset when the process restarts. Paid calls reserve local budget before the upstream request, and returned `karma_cost` values settle against that reservation. If a successful paid response omits a parseable cost or returns a cost above the remaining cap, the MCP call fails with a local policy error. x402 payment challenges are checked against remaining caps before the challenge is returned to the client.
+Paid tools also require spend caps. Caps are tracked per MCP server process and reset when the process restarts. Paid calls reserve local budget before the upstream request. Generic rail runs (`deva_tools_run`) conservatively settle the full reserved ceiling, regardless of returned billing fields; polling does not charge it again. Other paid tools settle against that reservation using returned `karma_cost` values. For those other paid tools, if a successful response omits a parseable cost or returns a cost above the remaining cap, the MCP call fails with a local policy error. x402 payment challenges are checked against the saved run ceiling and remaining caps before the challenge is returned to the client.
 
 Example:
 
@@ -430,7 +430,7 @@ Config shape:
     "timeout_ms": 30000
   },
   "tool_policy": {
-    "enabled_tools": ["deva_tools_discover", "deva_tools_inspect", "deva_tools_estimate", "deva_tools_run", "deva_tools_get_run"],
+    "enabled_tools": ["deva_tools_discover", "deva_tools_inspect", "deva_tools_estimate"],
     "spend_caps": {
       "session_karma": 0,
       "default_tool_karma": 0,

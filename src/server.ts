@@ -6,7 +6,7 @@ import { withKarmaCost } from "./billing.js";
 import { RuntimeConfig, redactApiKey } from "./config.js";
 import { DevaClient } from "./deva-client.js";
 import { DevaError, formatErrorForTool } from "./errors.js";
-import { ToolPolicyEnforcer, ToolSpendReservation, assertKnownToolPolicies } from "./tool-policy.js";
+import { ToolPolicyEnforcer, ToolSpendReservation, assertKnownToolPolicies, creditsToKarma } from "./tool-policy.js";
 import { createAgentTools } from "./tools/agent.js";
 import { createAiTools } from "./tools/ai.js";
 import { createRailTools, prepareRailRun } from "./tools/rail.js";
@@ -115,13 +115,13 @@ export class DevaMcpServer {
         let args = (request.params.arguments ?? {}) as Record<string, unknown>;
         if (toolName === "deva_tools_run") args = await prepareRailRun(args, this.client);
         spendReservation = this.toolPolicy.reserveSpend(
-          toolName, toolName === "deva_tools_run" ? (args.maxTotalChargeUsd as number) * 1000 : undefined
+          toolName, toolName === "deva_tools_run" ? creditsToKarma(args.maxTotalChargeUsd as number) : undefined
         );
         const context: ToolContext = {
           client: this.client,
           auth: this.auth,
           onRailRunSubmitted: () => { railRunSubmitted = true; },
-          maxRunCredits: toolName === "deva_tools_run" && spendReservation ? spendReservation.reservedKarma / 1000 : undefined
+          maxRunCredits: toolName === "deva_tools_run" && spendReservation ? args.maxTotalChargeUsd as number : undefined
         };
 
         const payload = await tool.execute(args, context);
@@ -147,7 +147,7 @@ export class DevaMcpServer {
         else this.toolPolicy.releaseSpend(spendReservation);
         let message: string;
         try {
-          this.toolPolicy.assertPaymentChallengeWithinCaps(toolName, error);
+          this.toolPolicy.assertPaymentChallengeWithinCaps(toolName, error, spendReservation?.reservedKarma);
           message = formatErrorForTool(error);
         } catch (policyError) {
           message = formatErrorForTool(policyError);
