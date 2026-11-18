@@ -46,6 +46,32 @@ afterEach(() => {
 });
 
 describe("route fixes", () => {
+  it("cost estimate advertises the live slug-based contract", () => {
+    const tool = createBalanceTools().find((t) => t.name === "deva_cost_estimate")!;
+    expect(tool.inputSchema.required).toEqual(["slug"]);
+    expect(tool.inputSchema.properties).toMatchObject({
+      slug: { type: "string" }, params: { type: "object" }, maxTotalChargeUsd: { type: "number" }
+    });
+  });
+
+  it("cost estimate sends the catalog slug, params and optional cap", async () => {
+    const args = { slug: "apify.apify.instagram-scraper", params: { resultsLimit: 10 }, maxTotalChargeUsd: 1 };
+    expect(await run(createBalanceTools(), "deva_cost_estimate", args)).toEqual({
+      method: "POST", path: "/v1/agents/resources/estimate", body: args, requiresAuth: false
+    });
+    expect((await run(createBalanceTools(), "deva_cost_estimate", { slug: args.slug })).body)
+      .toEqual({ slug: args.slug, params: {} });
+  });
+
+  it("cost estimate rejects missing slugs and legacy resource types before requesting", async () => {
+    const tool = createBalanceTools().find((t) => t.name === "deva_cost_estimate")!;
+    const { calls, context } = harness();
+    for (const args of [{}, { resource_id: "tts" }, { resource_type: "llm" }, { slug: "" }]) {
+      await expect(tool.execute(args, context as never)).rejects.toThrow(/slug/);
+    }
+    expect(calls).toHaveLength(0);
+  });
+
   it("transcription rejects inherited-property extensions and truncated base64", async () => {
     const tool = createAiTools().find((t) => t.name === "deva_ai_transcription")!;
     const { context } = harness();

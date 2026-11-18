@@ -1,4 +1,4 @@
-import { ToolDefinition } from "./types.js";
+import { asString, ToolDefinition } from "./types.js";
 
 export function createBalanceTools(): ToolDefinition[] {
   return [
@@ -22,20 +22,28 @@ export function createBalanceTools(): ToolDefinition[] {
     },
     {
       name: "deva_cost_estimate",
-      description: "Estimate karma cost for a resource call before execution (free).",
+      description: "Estimate a catalog resource call before execution (free). Use an exact slug from deva_resources_catalog.",
       inputSchema: {
         type: "object",
-        description: "Estimate payload accepted by Deva API.",
-        additionalProperties: true
+        properties: {
+          slug: { type: "string", minLength: 1, description: "Exact resource slug from the catalog." },
+          params: { type: "object", additionalProperties: true, description: "Resource input parameters." },
+          maxTotalChargeUsd: { type: "number", minimum: 0.001, maximum: 1e9, description: "Optional maximum charge using the API field name." }
+        },
+        required: ["slug"],
+        additionalProperties: false
       },
       async execute(args, context) {
-        const payload =
-          typeof args.resource_id === "string"
-            ? args
-            : typeof args.resource_type === "string"
-              ? { ...args, resource_id: args.resource_type, resource_type: undefined }
-              : args;
-        return context.client.request({ method: "POST", path: "/v1/agents/resources/estimate", body: payload });
+        const slug = asString(args.slug, "slug");
+        if (args.params !== undefined && (!args.params || typeof args.params !== "object" || Array.isArray(args.params))) {
+          throw new Error("params must be an object");
+        }
+        const cap = args.maxTotalChargeUsd;
+        if (cap !== undefined && (typeof cap !== "number" || !Number.isFinite(cap) || cap < 0.001 || cap > 1e9)) {
+          throw new Error("maxTotalChargeUsd must be between 0.001 and 1000000000");
+        }
+        const payload = { slug, params: args.params ?? {}, ...(cap === undefined ? {} : { maxTotalChargeUsd: cap }) };
+        return context.client.request({ method: "POST", path: "/v1/agents/resources/estimate", body: payload, requiresAuth: false });
       }
     },
     {

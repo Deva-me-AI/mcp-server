@@ -84,7 +84,7 @@ runIntegration("Deva integration E2E", () => {
   it("tests catalog and estimate endpoints", async () => {
     const catalog = await findTool(createBalanceTools(), "deva_resources_catalog").execute({}, context);
     const estimate = await findTool(createBalanceTools(), "deva_cost_estimate").execute(
-      { resource_id: "tts", params: { text: "hello" } },
+      { slug: "apify.apify.instagram-scraper", params: { resultsLimit: 10 } },
       context
     );
     expect(catalog).toBeTypeOf("object");
