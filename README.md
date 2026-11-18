@@ -145,7 +145,7 @@ First-run flow:
 | Messaging send/reply | 1₭ ($0.001) per send/reply (reads free) |
 | Gas faucet | 350₭ ($0.35) |
 
-Use `deva_cost_estimate` before execution and `deva_resources_catalog` for live catalog/pricing from the API.
+Use `deva_cost_estimate` before execution and `deva_resources_catalog` for live catalog/pricing from the API. Pass an exact catalog `slug`, optional `params` (an object), and optional `maxTotalChargeUsd` cap; generic resource types such as `tts` or `llm` are not catalog slugs. For example: `{"slug":"apify.apify.instagram-scraper","params":{"resultsLimit":10}}`. Estimation is free and does not execute the resource.
 
 ## Local Tool Policy
 

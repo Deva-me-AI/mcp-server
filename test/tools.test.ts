@@ -50,7 +50,7 @@ describe("tool inventory", () => {
 
     const tools = createBalanceTools();
     await tools.find((tool) => tool.name === "deva_balance_get")!.execute({}, context);
-    await tools.find((tool) => tool.name === "deva_cost_estimate")!.execute({}, context);
+    await tools.find((tool) => tool.name === "deva_cost_estimate")!.execute({ slug: "apify.apify.instagram-scraper" }, context);
     await tools.find((tool) => tool.name === "deva_resources_catalog")!.execute({}, context);
 
     expect(calls[0]).toEqual({ method: "GET", path: "/v1/agents/balance" });
