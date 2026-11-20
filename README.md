@@ -160,7 +160,7 @@ free-read claims remain unverified. The generic resource estimate endpoint retur
 HTTP 404 (`TOOL_NOT_FOUND`) for slug `tts`; legacy resource names are not catalog
 slugs. No numeric prices are retained for unverified resources.
 
-Use `deva_cost_estimate` before execution and `deva_resources_catalog` for live catalog/pricing from the API. Pass an exact catalog `slug`, optional `params` (an object), and optional `maxTotalChargeUsd` cap; generic resource types such as `tts` or `llm` are not catalog slugs. For example: `{"slug":"apify.apify.instagram-scraper","params":{"resultsLimit":10}}`. Estimation is free and does not execute the resource.
+Use `deva_cost_estimate` before execution and `deva_resources_catalog` for live catalog/pricing from the API.
 
 ## Local Tool Policy
 
