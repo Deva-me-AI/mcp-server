@@ -128,24 +128,39 @@ First-run flow:
 
 ## Pricing (Current)
 
-| Resource | Price |
-|---|---|
-| TTS | 1₭ ($0.001) per 100 chars |
-| Email | 1₭ ($0.001) per email |
-| Image generation | 80₭ ($0.08) standard, 160₭ ($0.16) HD |
-| Embeddings | 1₭ ($0.001) per 1K tokens |
-| Vision | 20₭ ($0.02) per image |
-| Web search | 10₭ ($0.01) per search |
-| X search | 10₭ ($0.01) per search |
-| X user tweets | 10₭ ($0.01) per request |
-| KV store writes | 1₭ ($0.001) per write (reads free) |
-| File uploads | 1₭ ($0.001) per upload (downloads free) |
-| Transcription | 5₭ ($0.005) per 24s |
-| LLM completion | 20₭ ($0.02) base |
-| Messaging send/reply | 1₭ ($0.001) per send/reply (reads free) |
-| Gas faucet | 350₭ ($0.35) |
+> Last verified: 2026-11-20 UTC against https://api.deva.me.
 
-Use `deva_cost_estimate` before execution and `deva_resources_catalog` for live catalog/pricing from the API. Pass an exact catalog `slug`, optional `params` (an object), and optional `maxTotalChargeUsd` cap; generic resource types such as `tts` or `llm` are not catalog slugs. For example: `{"slug":"apify.apify.instagram-scraper","params":{"resultsLimit":10}}`. Estimation is free and does not execute the resource.
+These are observed unauthenticated HTTP 402 payment challenges, not guaranteed
+billing rates. `credits_cost` is in USD credits; `usdc_amount` is in micro-USDC.
+**1,000 ₭ = 1 USDC.** No payment was submitted and no service was executed.
+Recheck with the intended payload before paying; a challenge does not verify
+successful execution, availability, or the final metering unit.
+
+| Resource | Challenge (karma) | Scope | USDC Equivalent |
+|---|---|---|---|
+| TTS | 2 ₭ / 5 ₭ | observed requests: 100 / 300 `x` characters | $0.002 / $0.005 |
+| Email | 1 ₭ | observed request with `to`, `subject`, and `body` | $0.001 |
+| Image generation | 44 ₭ / 80 ₭ | observed requests: `prompt: "A blue square"`, `quality: "standard"` / `"hd"` | $0.044 / $0.08 |
+| Embeddings | 1 ₭ | observed request: `input: "Price verification"`, `model: "text-embedding-3-small"` | $0.001 |
+| Vision | 15 ₭ | observed request with JSON `{}` | $0.015 |
+| Web search | 5 ₭ | observed request with JSON `{}` | $0.005 |
+| X search | Unverified | HTTP 401 without a price | Unverified |
+| X user tweets | Unverified | HTTP 401 without a price | Unverified |
+| KV store writes | Unverified | HTTP 401 without a price | Unverified |
+| File uploads | Unverified | HTTP 401 without a price | Unverified |
+| Transcription | Unverified | HTTP 401 without a price | Unverified |
+| LLM completion | Unverified | HTTP 401 without a price | Unverified |
+| Messaging send/reply | Unverified | HTTP 401 without a price | Unverified |
+| Gas faucet | Unverified | HTTP 401 without a price | Unverified |
+
+The TTS samples do not establish a linear per-100-character rate. Image challenges
+apply to the sampled payloads with other options omitted, not every model or size.
+KV reads, file downloads, and messaging inbox reads also returned HTTP 401, so
+free-read claims remain unverified. The generic resource estimate endpoint returned
+HTTP 404 (`TOOL_NOT_FOUND`) for slug `tts`; legacy resource names are not catalog
+slugs. No numeric prices are retained for unverified resources.
+
+Use `deva_cost_estimate` before execution and `deva_resources_catalog` for live catalog/pricing from the API.
 
 ## Local Tool Policy
 
